@@ -30,8 +30,6 @@ const policyPath = join(extensionDir, "../command-guard.json");
 const sharedPath = join(extensionDir, "../dangerous-patterns.txt");
 
 const legacyFiles = [
-  join(home, ".agents/hooks/command-guard.json"),
-  join(home, ".agents/hooks/dangerous-patterns.txt"),
   join(home, ".pi/agent/extensions/command-guard.ts"),
 ];
 
