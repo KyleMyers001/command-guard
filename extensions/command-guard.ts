@@ -148,6 +148,7 @@ export function createCommandGuard(options: GuardOptions = {}) {
     shared,
     policyFile,
     extensionPath,
+    join(extensionDir, "../package.json"),
     ...legacyFiles,
   ])];
 

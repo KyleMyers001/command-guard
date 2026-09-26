@@ -677,9 +677,20 @@ test("default extension registers interception and a startup health check", () =
   assert.equal(typeof handlers.get("session_start"), "function");
 });
 
-test("package manifest exposes exactly one Pi extension entrypoint", () => {
-  const manifest = JSON.parse(readFileSync(resolve(import.meta.dirname, "../package.json"), "utf8"));
-  assert.deepEqual(manifest.pi?.extensions, ["./extensions/command-guard.ts"]);
+test("Pi's package manager loads the repository as a package with one extension", async () => {
+  const { DefaultPackageManager } = await piModule("core/package-manager.js");
+  const { SettingsManager } = await piModule("core/settings-manager.js");
+  const { loadExtensions } = await piModule("core/extensions/loader.js");
+  const cwd = mkdtempSync(join(root, "package-"));
+  const manager = new DefaultPackageManager({ cwd, agentDir: join(cwd, "agent"), settingsManager: SettingsManager.inMemory() });
+  const resolved = await manager.resolveExtensionSources([resolve(import.meta.dirname, "..")], { temporary: true });
+  const paths = resolved.extensions.filter(extension => extension.enabled).map(extension => extension.path);
+  assert.deepEqual(paths.map(path => realpathSync(path)), [realpathSync(resolve(import.meta.dirname, "../extensions/command-guard.ts"))]);
+  const loaded = await loadExtensions(paths, cwd);
+  assert.deepEqual(loaded.errors, []);
+  assert.equal(loaded.extensions.length, 1);
+  assert.equal(loaded.extensions[0].handlers.get("tool_call").length, 1);
+  assert.equal(loaded.extensions[0].handlers.get("session_start").length, 1);
 });
 
 test("Pi's file-based loader loads the actual extension entrypoint and helper", async () => {
@@ -704,7 +715,10 @@ for (const tool of ["edit", "write"]) {
     const h = setup();
     for (const path of [
       resolve(import.meta.dirname, "../command-guard.json"),
+      resolve(import.meta.dirname, "../dangerous-patterns.txt"),
+      resolve(import.meta.dirname, "../package.json"),
       join(homedir(), ".agents/hooks/command-guard.json"),
+      join(homedir(), ".agents/hooks/dangerous-patterns.txt"),
       join(homedir(), ".pi/agent/extensions/command-guard.ts"),
       join(homedir(), ".pi/agent/extensions/command-guard/policy.ts"),
     ]) {
