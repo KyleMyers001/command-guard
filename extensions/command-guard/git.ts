@@ -117,7 +117,7 @@ const CHECKOUT_SAFE_OPTIONS = new Set([
 
 function looksLikePath(operand: string): boolean {
   // A leading ./~: or trailing slash, a glob, or a file extension.
-  return /^[.\/~:]|\/$|[*?\[]|\.[A-Za-z][A-Za-z0-9]*$/u.test(operand);
+  return /^[./~:]|\/$|[*?\x5b]|\.[A-Za-z][A-Za-z0-9]*$/u.test(operand);
 }
 
 // `git checkout <operand>` switches branches when the operand is a ref and
