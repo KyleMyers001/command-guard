@@ -1,0 +1,17 @@
+# Synthetic shared baseline for command guard tests, version 1.
+# Mirrors the Git and GitHub rules of ~/.agents/hooks/dangerous-patterns.txt
+# as of 2026-09-20 so combined-policy verdicts stay deterministic.
+
+# rewriting remote git history
+(^|[;&|[:space:]])git[[:space:]]+push[^;&|]*[[:space:]](-f|--force)([[:space:]]|$)
+(^|[;&|[:space:]])git[[:space:]]+push[^;&|]*[[:space:]]\+[A-Za-z0-9._/-]
+
+# deleting remote branches/tags
+(^|[;&|[:space:]])git[[:space:]]+push[^;&|]*[[:space:]](--delete|-d)([[:space:]]|$)
+(^|[;&|[:space:]])git[[:space:]]+push[^;&|]*[[:space:]]:[A-Za-z0-9._/-]
+
+# GitHub CLI: irreversible or account-level destruction
+(^|[;&|[:space:]])gh[[:space:]]+repo[[:space:]]+delete([[:space:]]|$)
+(^|[;&|[:space:]])gh[[:space:]]+release[[:space:]]+delete([[:space:]]|$)
+(^|[;&|[:space:]])gh[[:space:]]+api[[:space:]][^;&|]*(-X|--method)(=|[[:space:]]+)(DELETE|delete)
+(^|[;&|[:space:]])gh[[:space:]]+auth[[:space:]]+token([[:space:]]|$)
