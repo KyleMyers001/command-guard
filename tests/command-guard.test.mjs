@@ -693,6 +693,39 @@ test("Pi's package manager loads the repository as a package with one extension"
   assert.equal(loaded.extensions[0].handlers.get("session_start").length, 1);
 });
 
+test("Pi discovers a cloned repository in the user extensions directory", async () => {
+  const { discoverAndLoadExtensions } = await piModule("core/extensions/loader.js");
+  const { ExtensionRunner } = await piModule("core/extensions/runner.js");
+  const cwd = mkdtempSync(join(root, "runtime-clone-"));
+  const agentDir = join(cwd, "agent");
+  const clone = join(agentDir, "extensions/command-guard");
+  mkdirSync(clone, { recursive: true });
+  cpSync(resolve(import.meta.dirname, "../package.json"), join(clone, "package.json"));
+  cpSync(resolve(import.meta.dirname, "../command-guard.json"), join(clone, "command-guard.json"));
+  cpSync(resolve(import.meta.dirname, "../dangerous-patterns.txt"), join(clone, "dangerous-patterns.txt"));
+  cpSync(resolve(import.meta.dirname, "../extensions"), join(clone, "extensions"), { recursive: true });
+
+  const loaded = await discoverAndLoadExtensions([], cwd, agentDir);
+  assert.deepEqual(loaded.errors, []);
+  assert.equal(loaded.extensions.length, 1);
+  assert.equal(
+    realpathSync(loaded.extensions[0].resolvedPath),
+    realpathSync(join(clone, "extensions/command-guard.ts")),
+  );
+  assert.equal(loaded.extensions[0].handlers.get("tool_call").length, 1);
+  assert.equal(loaded.extensions[0].handlers.get("session_start").length, 1);
+
+  const runner = new ExtensionRunner(loaded.extensions, loaded.runtime, cwd, {}, {});
+  const notices = [];
+  runner.setUIContext({
+    setStatus: () => {},
+    notify: (...args) => notices.push(args),
+  }, "tui");
+  await runner.emit({ type: "session_start", reason: "startup" });
+  assert.deepEqual(notices, []);
+  assert.equal(await runner.emitToolCall(bash()), undefined);
+});
+
 test("Pi's file-based loader loads the actual extension entrypoint and helper", async () => {
   const { loadExtensions } = await piModule("core/extensions/loader.js");
   const loaded = await loadExtensions([resolve(import.meta.dirname, "../extensions/command-guard.ts")], root);
@@ -711,14 +744,12 @@ test("repository policy uses supported selectors without enabling new tools", ()
 });
 
 for (const tool of ["edit", "write"]) {
-  test(`${tool} protects repository and legacy paths even before links replace duplicate files`, async () => {
+  test(`${tool} protects repository and legacy extension paths`, async () => {
     const h = setup();
     for (const path of [
       resolve(import.meta.dirname, "../command-guard.json"),
       resolve(import.meta.dirname, "../dangerous-patterns.txt"),
       resolve(import.meta.dirname, "../package.json"),
-      join(homedir(), ".agents/hooks/command-guard.json"),
-      join(homedir(), ".agents/hooks/dangerous-patterns.txt"),
       join(homedir(), ".pi/agent/extensions/command-guard.ts"),
       join(homedir(), ".pi/agent/extensions/command-guard/policy.ts"),
     ]) {

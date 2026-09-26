@@ -44,42 +44,65 @@ npm pack --dry-run
 
 ## Loading in Pi
 
-Try this checkout for one Pi invocation:
+Try a development checkout for one Pi invocation:
 
 ```bash
 pi -e /absolute/path/to/command-guard
 ```
 
-For a personal local package installation:
+For the persistent installation, clone the repository into Pi's user extension
+directory:
 
 ```bash
-pi install /absolute/path/to/command-guard
+git clone https://github.com/KyleMyers001/command-guard.git \
+  ~/.pi/agent/extensions/command-guard
 ```
 
-Do not load the package and a legacy extension symlink at the same time. Two
-loaded guards can evaluate the same call and prompt twice.
+Pi discovers the extension declared in the clone's `package.json`. Keep this
+runtime clone clean and normally checked out on `main`. Develop in a separate
+clone so uncommitted work cannot affect Pi.
 
-The current local deployment uses these compatibility links:
+Update the runtime clone explicitly:
 
-- `~/.pi/agent/extensions/command-guard.ts` → this repository's entrypoint
-- `~/.pi/agent/extensions/command-guard/` → this repository's helper directory
-- `~/.agents/hooks/command-guard.json` → this repository's JSON policy
-- `~/.agents/hooks/dangerous-patterns.txt` → this repository's shared baseline
+```bash
+git -C ~/.pi/agent/extensions/command-guard switch main
+git -C ~/.pi/agent/extensions/command-guard pull --ff-only
+```
 
-The extension resolves its real entrypoint before locating both policy assets,
-so direct and symlink loading use the files in this repository. The
-`~/.agents/hooks` links remain available to other agent guards that share the
-same baseline.
+Run `/reload` after changing the checked-out code. Policy files are read on each
+covered call, so valid policy changes apply immediately. A missing or invalid
+policy fails closed; it never falls back to an older copy.
 
-Run `/reload` after extension-code changes or activation changes. Policy files
-are read on each covered call, so valid policy edits apply immediately. A
-missing or invalid policy fails closed; it never falls back to an older copy.
+### Testing a feature branch
+
+Push the feature branch, then temporarily load its exact remote commit:
+
+```bash
+branch=feat/example
+git -C ~/.pi/agent/extensions/command-guard fetch origin
+git -C ~/.pi/agent/extensions/command-guard \
+  switch --detach "origin/$branch"
+```
+
+Run `/reload` and perform non-destructive integration checks. Restore the stable
+installation afterward, even when testing fails:
+
+```bash
+git -C ~/.pi/agent/extensions/command-guard switch main
+git -C ~/.pi/agent/extensions/command-guard pull --ff-only
+```
+
+Run `/reload` again. If a feature version prevents Pi from starting, restore
+`main` from an external terminal and restart Pi.
+
+Do not load the runtime clone and a legacy extension symlink at the same time.
+Two loaded guards can evaluate the same call and prompt twice.
 
 ## Evaluation order
 
 1. Built-in protection prevents `edit` and `write` from changing guard-owned
    files (including `package.json`, which selects the loaded extension), helper
-   directories, and known compatibility aliases.
+   directories, and the known legacy entrypoint alias.
 2. Shared regex matches deny Bash calls.
 3. Command-analysis denies and JSON deny selectors block without an approval
    override.
@@ -170,15 +193,23 @@ server-side branch protection and operating-system isolation for controls that
 must not depend on agent behavior. Never put secrets in policy selectors, test
 fixtures, or tool arguments.
 
-## Activation and rollback
+## Migrating a legacy symlink installation
 
 Before changing a live installation:
 
-1. Run `npm ci && npm run check` in this repository.
-2. Record the current targets of all four compatibility links.
-3. Retarget the links only with explicit operator approval.
-4. Run `/reload` in every active Pi session.
-5. Validate with harmless synthetic allow, ask, and deny inputs.
+1. Merge and verify the intended commit on `main`.
+2. Clone that commit to a staging directory and run `npm ci && npm run check`.
+3. Record the current extension symlink targets and relevant Pi settings.
+4. Obtain explicit operator approval before removing or replacing symlinks.
+5. Remove the explicit `+extensions/command-guard.ts` settings entry, if present.
+6. Remove the legacy entrypoint symlink and replace the legacy helper-directory
+   symlink with the verified runtime clone.
+7. Remove obsolete Command Guard links under `~/.agents/hooks/`; Pi does not use
+   them because both policy assets are repository-relative.
+8. Run `/reload` in every active Pi session and validate with harmless synthetic
+   allow, declined-ask, and deny inputs.
 
-If loading or policy validation fails, restore the recorded link targets and
-reload Pi again. Do not submit a destructive command merely to test a deny.
+If loading or policy validation fails, use an external terminal to move the
+runtime clone aside, restore the recorded extension symlinks, and restart or
+reload Pi. The obsolete `~/.agents/hooks/` links do not need to be restored. Do
+not submit a destructive command merely to test a deny.

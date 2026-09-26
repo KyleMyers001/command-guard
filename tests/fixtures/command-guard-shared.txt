@@ -1,6 +1,6 @@
 # Synthetic shared baseline for command guard tests, version 1.
-# Mirrors the Git and GitHub rules of ~/.agents/hooks/dangerous-patterns.txt
-# as of 2026-09-20 so combined-policy verdicts stay deterministic.
+# Mirrors the repository's Git and GitHub shared-baseline rules as of
+# 2026-09-20 so combined-policy verdicts stay deterministic.
 
 # rewriting remote git history
 (^|[;&|[:space:]])git[[:space:]]+push[^;&|]*[[:space:]](-f|--force)([[:space:]]|$)
