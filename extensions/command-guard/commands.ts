@@ -88,7 +88,9 @@ function withSeparateApiValues(args: Word[]): Word[] {
     // `-i` is the only short flag without a value, so it may lead a bundle.
     const short = /^-(i*)([XfFHqtp])=?(.*)$/u.exec(word.text);
     if (short?.[3]) {
-      for (const _ of short[1]) rest.push({ text: "-i", dynamic: false });
+      for (let j = 0; j < short[1].length; j++) {
+        rest.push({ text: "-i", dynamic: false });
+      }
       rest.push({ text: `-${short[2]}`, dynamic: false });
       rest.push({ text: short[3], dynamic: word.dynamic });
       continue;
@@ -119,7 +121,7 @@ function workdirsAfter(segment: Word[], workdirs: string[] | undefined): string[
 }
 
 function spell(word: Word): string {
-  if (/^[A-Za-z0-9_@%+=:,.\/~^-]+$/u.test(word.text)) return word.text;
+  if (/^[A-Za-z0-9_@%+=:,./~^-]+$/u.test(word.text)) return word.text;
   return `'${word.text.replaceAll("'", "'\\''")}'`;
 }
 

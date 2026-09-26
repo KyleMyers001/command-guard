@@ -68,6 +68,15 @@ function compileBashRegex(source: string | undefined): RegExp {
   try {
     return new RegExp(source, "u");
   } catch {
+    // Node 22 predates inline modifiers. Preserve the policy's supported
+    // whole-expression `(?i:...)` form with an equivalent global flag.
+    if (source.startsWith("(?i:") && source.endsWith(")")) {
+      try {
+        return new RegExp(source.slice(4, -1), "iu");
+      } catch {
+        // Fall through to the policy-safe error below.
+      }
+    }
     throw new PolicyError("BashRegex expression is not a valid regular expression");
   }
 }
@@ -77,7 +86,7 @@ function validateFilePattern(pattern: string): void {
 
   const ambiguousRoot = pattern.startsWith("/") && !pattern.startsWith("//");
   const otherUsersHome = pattern.startsWith("~") && !pattern.startsWith("~/");
-  const unsupportedSyntax = /[?\[\]{}\\()]/u.test(pattern);
+  const unsupportedSyntax = /[?\x5b\]{}\\()]/u.test(pattern);
   const parentSegment = segments.includes("..");
   const partialRecursiveStar = segments
     .some(segment => segment.includes("**") && segment !== "**");

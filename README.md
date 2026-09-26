@@ -27,11 +27,14 @@ Requires Node 22.19 or newer.
 ```bash
 npm ci
 npm run check
+npm run test:coverage
 ```
 
-`npm run check` runs strict TypeScript validation and the complete Node test
-suite. Test command strings are parsed but never executed. Synthetic filesystem
-fixtures are retained under `~/Workbench/Investigations/pi-extension-tests/`.
+`npm run check` runs ESLint with zero warnings, strict TypeScript validation,
+and the complete Node test suite. `npm run test:coverage` runs the same suite
+with coverage limited to the repository's extension sources. Test command
+strings are parsed but never executed. Synthetic filesystem fixtures are
+retained under `~/Workbench/Investigations/pi-extension-tests/`.
 
 The loader integration tests use the Pi dependency installed by `npm ci`. Set
 `PI_PACKAGE_DIR` only when testing a different Pi checkout or installation.
