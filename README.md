@@ -78,7 +78,8 @@ missing or invalid policy fails closed; it never falls back to an older copy.
 ## Evaluation order
 
 1. Built-in protection prevents `edit` and `write` from changing guard-owned
-   files, helper directories, and known compatibility aliases.
+   files (including `package.json`, which selects the loaded extension), helper
+   directories, and known compatibility aliases.
 2. Shared regex matches deny Bash calls.
 3. Command-analysis denies and JSON deny selectors block without an approval
    override.
