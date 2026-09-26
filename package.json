@@ -1,0 +1,34 @@
+{
+  "name": "command-guard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Safety guard for Pi tool calls",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "files": [
+    "extensions",
+    "command-guard.json",
+    "dangerous-patterns.txt",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/command-guard.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.87.1",
+    "@types/node": "22.19.19",
+    "typescript": "5.9.3"
+  }
+}
