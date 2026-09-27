@@ -1,24 +1,33 @@
 import assert from 'node:assert/strict';
-import {mkdirSync, mkdtempSync, writeFileSync} from 'node:fs';
-import {homedir} from 'node:os';
+import {mkdirSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
-import test from 'node:test';
+import test, {after, before} from 'node:test';
+import {fixture} from './helpers/fixtures.ts';
 import {analyzeCommand} from '../extensions/command-guard/commands.ts';
 import {parseSegments} from '../extensions/command-guard/shell.ts';
 
 // Command strings are only ever parsed, never executed.
-const evidence = join(homedir(), 'Workbench/Investigations/pi-extension-tests');
-mkdirSync(evidence, {recursive: true});
-const cwd = mkdtempSync(join(evidence, 'commands-'));
-mkdirSync(join(cwd, 'docs'));
-mkdirSync(join(cwd, 'nested/sub'), {recursive: true});
-writeFileSync(join(cwd, 'Makefile'), 'synthetic');
-writeFileSync(join(cwd, 'nested/README'), 'synthetic');
-// Present only inside `repo`, so a check against `cwd` alone misses them.
-mkdirSync(join(cwd, 'repo/src'), {recursive: true});
-writeFileSync(join(cwd, 'repo/Justfile'), 'synthetic');
-mkdirSync(join(cwd, 'repo/git'));
-writeFileSync(join(cwd, 'repo/git/Taskfile'), 'synthetic');
+// Shared layout is read-only once populated. Keep setup runner-managed so its
+// teardown runs even if population fails (module-evaluation failures skip it).
+let cwd: string;
+let cleanup: (() => void) | undefined;
+after(() => cleanup?.());
+before(() => {
+  cwd = fixture({
+    after: callback => {
+      cleanup = callback;
+    },
+  });
+  mkdirSync(join(cwd, 'docs'));
+  mkdirSync(join(cwd, 'nested/sub'), {recursive: true});
+  writeFileSync(join(cwd, 'Makefile'), 'synthetic');
+  writeFileSync(join(cwd, 'nested/README'), 'synthetic');
+  // Present only inside `repo`, so a check against `cwd` alone misses them.
+  mkdirSync(join(cwd, 'repo/src'), {recursive: true});
+  writeFileSync(join(cwd, 'repo/Justfile'), 'synthetic');
+  mkdirSync(join(cwd, 'repo/git'));
+  writeFileSync(join(cwd, 'repo/git/Taskfile'), 'synthetic');
+});
 
 const texts = (command: string) =>
   parseSegments(command).map(words => words.map(word => word.text));

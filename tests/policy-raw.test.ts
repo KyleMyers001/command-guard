@@ -1,15 +1,14 @@
 import assert from 'node:assert/strict';
-import {mkdirSync, mkdtempSync, writeFileSync} from 'node:fs';
-import {homedir} from 'node:os';
+import {writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import test from 'node:test';
+import type {TestContext} from 'node:test';
+import {fixture} from './helpers/fixtures.ts';
 import {loadPolicy} from '../extensions/command-guard/policy.ts';
 import {matches} from '../extensions/command-guard/match.ts';
 
-const evidence = join(homedir(), 'Workbench/Investigations/pi-extension-tests');
-mkdirSync(evidence, {recursive: true});
-const root = mkdtempSync(join(evidence, 'raw-'));
-function rule(selector: unknown) {
+function rule(t: TestContext, selector: unknown) {
+  const root = fixture(t);
   const path = join(root, 'policy.json');
   writeFileSync(
     path,
@@ -18,9 +17,10 @@ function rule(selector: unknown) {
   return loadPolicy(path).deny[0];
 }
 
-test('BashRawRegex matches raw and canonical but never flattened spellings', () => {
+test('BashRawRegex matches raw and canonical but never flattened spellings', t => {
+  const root = fixture(t);
   for (const selector of ['BashRawRegex', 'BashRegex']) {
-    const compiled = rule(`${selector}((?m:>\\s*/dev/disk))`);
+    const compiled = rule(t, `${selector}((?m:>\\s*/dev/disk))`);
     assert.equal(compiled.regex?.flags, 'mu');
     for (let repeat = 0; repeat < 3; repeat++) {
       assert.equal(
@@ -45,7 +45,7 @@ test('BashRawRegex matches raw and canonical but never flattened spellings', () 
       );
     }
   }
-  const canonical = rule('BashRawRegex(^gh auth token$)');
+  const canonical = rule(t, 'BashRawRegex(^gh auth token$)');
   assert.equal(
     matches(
       canonical,
@@ -58,7 +58,7 @@ test('BashRawRegex matches raw and canonical but never flattened spellings', () 
   );
   assert.equal(
     matches(
-      rule('BashRawRegex((?im:^fixture$))'),
+      rule(t, 'BashRawRegex((?im:^fixture$))'),
       'bash',
       ['other\nFIXTURE', 'other'],
       root,
@@ -68,7 +68,7 @@ test('BashRawRegex matches raw and canonical but never flattened spellings', () 
   );
 });
 
-test('raw selector keeps strict string syntax and sanitized regex errors', () => {
+test('raw selector keeps strict string syntax and sanitized regex errors', t => {
   for (const selector of [
     'BashRawRegex',
     'BashRawRegex()',
@@ -78,7 +78,7 @@ test('raw selector keeps strict string syntax and sanitized regex errors', () =>
     {selector: 'BashRegex(x)', flatten: false},
   ]) {
     assert.throws(
-      () => rule(selector),
+      () => rule(t, selector),
       error => {
         assert.ok(error instanceof Error);
         assert.match(error.message, /configuration error/);

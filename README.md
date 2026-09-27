@@ -34,9 +34,41 @@ npm run test:coverage
 `npm run test:coverage` runs the same suite with coverage limited to the
 repository's extension sources. Tests and extension files run directly as
 TypeScript on Node 22.19+; keep their syntax erasable (no runtime enums or
-parameter properties), since Node strips types without compiling. Test command
-strings are parsed but never executed. Synthetic filesystem fixtures are
-retained under `~/Workbench/Investigations/pi-extension-tests/`.
+parameter properties), since Node strips types without compiling. Guard command
+strings are parsed but never executed; lifecycle acceptance tests launch only
+harmless synthetic Node test processes.
+
+### Test fixture lifecycle
+
+Writable fixtures use unique, test-owned directories from `os.tmpdir()` and are
+removed after their test finishes, including ordinary assertion or setup failures
+following allocation. The shared command-layout fixture is read-only during tests
+and is removed by its suite's teardown. Mutable policies and relocated extension
+copies never share a writable root between cases. Cleanup errors fail an otherwise
+successful test and are diagnosed separately if a test has already failed.
+
+To retain fixtures while debugging, opt in explicitly:
+
+```bash
+COMMAND_GUARD_KEEP_TEST_FIXTURES=1 npm test
+```
+
+Only the exact value `1` retains fixtures, for both passing and failing tests.
+Each retained path is printed as a JSON-quoted diagnostic; no fixture contents are
+printed. Unset the flag (or use any other value) for normal cleanup. The lifecycle
+acceptance suite always removes its own disposable outer harness, including the
+fixtures it intentionally retains to test this flag.
+
+Temporary placement follows the environment (`TMPDIR` on macOS/Linux); tests do
+not default to Workbench or require a machine-specific scratch path. Retained
+temporary data may still be pruned by the environment. Copy useful evidence to an
+investigation directory explicitly if it needs to persist.
+
+Teardown cannot guarantee cleanup after SIGKILL, a process crash, or machine
+shutdown. There is no age/prefix scavenger and no automatic retain-on-failure
+mode. Existing retained Workbench data is not changed or removed by these tests.
+The lifecycle tests cover real subprocess exits, synthetic HOME sentinels,
+concurrent ownership, and symlink cleanup without targeting real user data.
 
 ESLint uses `gts@7`'s Google-associated TypeScript rules and Prettier settings
 in `.prettierrc.json`. This is a practical automated baseline, not full
