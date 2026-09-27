@@ -31,40 +31,41 @@ export function parseSegments(command: string): Word[][] {
 function scanCommands(
   text: string,
   start: number,
-  closer: ")" | "`" | undefined,
+  closer: ')' | '`' | undefined,
   out: Word[][],
   depth: number,
 ): number {
-  if (depth > MAX_DEPTH) throw new Error("Shell nesting too deep");
+  if (depth > MAX_DEPTH) throw new Error('Shell nesting too deep');
 
   let segment: Word[] = [];
   let word: Word | undefined;
   // What the next finished word is, other than an argument.
-  let redirect: "none" | "target" | "heredoc" = "none";
+  let redirect: 'none' | 'target' | 'heredoc' = 'none';
   let stripTabs = false;
   let heredocs: Heredoc[] = [];
   let openParens = 0;
 
-  const current = (): Word => word ??= { text: "", dynamic: false };
+  const current = (): Word => (word ??= {text: '', dynamic: false});
 
   function endWord(): void {
     if (!word) return;
 
-    if (redirect === "heredoc") heredocs.push({ delimiter: word.text, stripTabs });
-    else if (redirect === "none") segment.push(word);
+    if (redirect === 'heredoc')
+      heredocs.push({delimiter: word.text, stripTabs});
+    else if (redirect === 'none') segment.push(word);
 
-    redirect = "none";
+    redirect = 'none';
     word = undefined;
   }
 
   function endSegment(): void {
     endWord();
-    redirect = "none";
+    redirect = 'none';
     if (segment.length > 0) out.push(segment);
     segment = [];
   }
 
-  function substitution(from: number, end: ")" | "`"): number {
+  function substitution(from: number, end: ')' | '`'): number {
     current().dynamic = true;
     return scanCommands(text, from, end, out, depth + 1);
   }
@@ -74,12 +75,12 @@ function scanCommands(
     const char = text[i];
     const next = text[i + 1];
 
-    if (char === "\\") {
+    if (char === '\\') {
       // A backslash-newline is a continuation, not a character.
-      if (next === "\n") i += 2;
-      else if (next === "\r" && text[i + 2] === "\n") i += 3;
+      if (next === '\n') i += 2;
+      else if (next === '\r' && text[i + 2] === '\n') i += 3;
       else {
-        current().text += next ?? "";
+        current().text += next ?? '';
         i += 2;
       }
     } else if (char === "'") {
@@ -89,50 +90,50 @@ function scanCommands(
       i = close < 0 ? text.length : close + 1;
     } else if (char === '"') {
       i = scanDoubleQuoted(text, i + 1, current(), out, depth);
-    } else if (char === "$" && next === "(") {
-      i = substitution(i + 2, ")");
-    } else if (char === "`") {
-      if (closer === "`") {
+    } else if (char === '$' && next === '(') {
+      i = substitution(i + 2, ')');
+    } else if (char === '`') {
+      if (closer === '`') {
         endSegment();
         return i + 1;
       }
-      i = substitution(i + 1, "`");
-    } else if (char === "(") {
+      i = substitution(i + 1, '`');
+    } else if (char === '(') {
       endSegment();
       openParens++;
       i++;
-    } else if (char === ")") {
+    } else if (char === ')') {
       endSegment();
-      if (closer === ")" && openParens === 0) return i + 1;
+      if (closer === ')' && openParens === 0) return i + 1;
       openParens = Math.max(0, openParens - 1);
       i++;
-    } else if (char === "<" || char === ">" || (char === "&" && next === ">")) {
+    } else if (char === '<' || char === '>' || (char === '&' && next === '>')) {
       // A number directly before the operator is a file descriptor.
       if (word && /^\d+$/u.test(word.text)) word = undefined;
       endWord();
 
-      let operator = "";
-      while (i < text.length && "<>&|".includes(text[i])) operator += text[i++];
+      let operator = '';
+      while (i < text.length && '<>&|'.includes(text[i])) operator += text[i++];
 
-      const isHeredoc = operator === "<<";
-      stripTabs = isHeredoc && text[i] === "-";
+      const isHeredoc = operator === '<<';
+      stripTabs = isHeredoc && text[i] === '-';
       if (stripTabs) i++;
-      redirect = isHeredoc ? "heredoc" : "target";
-    } else if (char === ";" || char === "|" || char === "&" || char === "\n") {
+      redirect = isHeredoc ? 'heredoc' : 'target';
+    } else if (char === ';' || char === '|' || char === '&' || char === '\n') {
       endSegment();
       i++;
-      if (char === "\n" && heredocs.length > 0) {
+      if (char === '\n' && heredocs.length > 0) {
         i = skipHeredocs(text, i, heredocs);
         heredocs = [];
       }
-    } else if (char === " " || char === "\t" || char === "\r") {
+    } else if (char === ' ' || char === '\t' || char === '\r') {
       endWord();
       i++;
-    } else if (char === "#" && !word) {
-      const newline = text.indexOf("\n", i);
+    } else if (char === '#' && !word) {
+      const newline = text.indexOf('\n', i);
       i = newline < 0 ? text.length : newline;
     } else {
-      if ("$*?[{".includes(char)) current().dynamic = true;
+      if ('$*?[{'.includes(char)) current().dynamic = true;
       current().text += char;
       i++;
     }
@@ -158,19 +159,19 @@ function scanDoubleQuoted(
 
     if (char === '"') return i + 1;
 
-    if (char === "\\" && next === "\n") {
+    if (char === '\\' && next === '\n') {
       i += 2;
-    } else if (char === "\\" && next !== undefined && '$`"\\'.includes(next)) {
+    } else if (char === '\\' && next !== undefined && '$`"\\'.includes(next)) {
       word.text += next;
       i += 2;
-    } else if (char === "$" && next === "(") {
+    } else if (char === '$' && next === '(') {
       word.dynamic = true;
-      i = scanCommands(text, i + 2, ")", out, depth + 1);
-    } else if (char === "`") {
+      i = scanCommands(text, i + 2, ')', out, depth + 1);
+    } else if (char === '`') {
       word.dynamic = true;
-      i = scanCommands(text, i + 1, "`", out, depth + 1);
+      i = scanCommands(text, i + 1, '`', out, depth + 1);
     } else {
-      if (char === "$") word.dynamic = true;
+      if (char === '$') word.dynamic = true;
       word.text += char;
       i++;
     }
@@ -182,17 +183,21 @@ function scanDoubleQuoted(
 }
 
 // Here-document bodies are data. Returns the index after the last body.
-function skipHeredocs(text: string, start: number, heredocs: Heredoc[]): number {
+function skipHeredocs(
+  text: string,
+  start: number,
+  heredocs: Heredoc[],
+): number {
   let i = start;
 
-  for (const { delimiter, stripTabs } of heredocs) {
+  for (const {delimiter, stripTabs} of heredocs) {
     while (i < text.length) {
-      const newline = text.indexOf("\n", i);
+      const newline = text.indexOf('\n', i);
       const end = newline < 0 ? text.length : newline;
-      const line = text.slice(i, end).replace(/\r$/u, "");
+      const line = text.slice(i, end).replace(/\r$/u, '');
       i = newline < 0 ? text.length : newline + 1;
 
-      if ((stripTabs ? line.replace(/^\t+/u, "") : line) === delimiter) break;
+      if ((stripTabs ? line.replace(/^\t+/u, '') : line) === delimiter) break;
     }
   }
 
