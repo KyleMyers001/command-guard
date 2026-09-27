@@ -30,11 +30,21 @@ npm run check
 npm run test:coverage
 ```
 
-`npm run check` runs ESLint with zero warnings, strict TypeScript validation,
-and the complete Node test suite. `npm run test:coverage` runs the same suite
-with coverage limited to the repository's extension sources. Test command
+`npm run check` runs ESLint with zero warnings, strict TypeScript validation
+(including both `.test.ts` suites), and the complete Node test suite.
+`npm run test:coverage` runs the same suite with coverage limited to the
+repository's extension sources. Tests and extension files run directly as
+TypeScript on Node 22.19+; keep their syntax erasable (no runtime enums or
+parameter properties), since Node strips types without compiling. Test command
 strings are parsed but never executed. Synthetic filesystem fixtures are
 retained under `~/Workbench/Investigations/pi-extension-tests/`.
+
+ESLint uses `gts@7`'s Google-associated TypeScript rules and Prettier settings
+in `.prettierrc.json`. This is a practical automated baseline, not full
+coverage of the [Google TypeScript style guide](https://google.github.io/styleguide/tsguide.html).
+The preset currently requires ESLint 9. Run `npm run lint` to check style;
+keep exceptions scoped in `eslint.config.js`. Pi's required default extension
+export remains unchanged.
 
 The loader integration tests use the Pi dependency installed by `npm ci`. Set
 `PI_PACKAGE_DIR` only when testing a different Pi checkout or installation.
@@ -155,7 +165,7 @@ To check a candidate policy before replacing the active file:
 ```bash
 COMMAND_GUARD_POLICY=/path/to/candidate.json \
   node --test --test-name-pattern="policy examples" \
-  tests/command-guard.test.mjs
+  tests/command-guard.test.ts
 ```
 
 Add or update a policy example whenever a rule changes. The examples pin allow,
