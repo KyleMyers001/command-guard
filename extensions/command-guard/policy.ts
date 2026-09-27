@@ -8,8 +8,10 @@ export interface Rule {
   tool: GuardTool;
   // Absent for a bare selector such as `Bash`, which matches every call.
   pattern?: string;
-  // Set for `BashRegex(...)`; `pattern` then holds the regex source.
+  // Set for either regex selector; `pattern` then holds the regex source.
   regex?: RegExp;
+  // Raw selectors still match canonical spelling, but never flattened text.
+  flatten?: false;
 }
 
 interface Policy {
@@ -20,6 +22,7 @@ interface Policy {
 const selectorTools: Record<string, GuardTool> = {
   Bash: 'bash',
   BashRegex: 'bash',
+  BashRawRegex: 'bash',
   Read: 'read',
   Edit: 'edit',
   Write: 'write',
@@ -70,18 +73,20 @@ function compileBashRegex(source: string | undefined): RegExp {
   if (source === undefined)
     throw new PolicyError('BashRegex needs an expression');
 
+  // Normalize supported whole-expression modifiers before compilation:
+  // Node 22 has no inline modifiers, while newer runtimes accept them natively.
+  const wrapper = /^\(\?(i|m|im):([\s\S]*)\)$/u.exec(source);
+  if (wrapper) {
+    try {
+      return new RegExp(wrapper[2], `${wrapper[1]}u`);
+    } catch {
+      // A prefix and final ')' need not enclose the whole expression, e.g.
+      // `(?i:a)(b)`. Preserve native handling of such scoped expressions.
+    }
+  }
   try {
     return new RegExp(source, 'u');
   } catch {
-    // Node 22 predates inline modifiers. Preserve the policy's supported
-    // whole-expression `(?i:...)` form with an equivalent global flag.
-    if (source.startsWith('(?i:') && source.endsWith(')')) {
-      try {
-        return new RegExp(source.slice(4, -1), 'iu');
-      } catch {
-        // Fall through to the policy-safe error below.
-      }
-    }
     throw new PolicyError(
       'BashRegex expression is not a valid regular expression',
     );
@@ -123,15 +128,21 @@ function parseRule(value: unknown): Rule {
       : undefined;
   if (!tool) {
     throw new PolicyError(
-      'Supported selectors: Bash, BashRegex, Read, Edit, Write',
+      'Supported selectors: Bash, BashRegex, BashRawRegex, Read, Edit, Write',
     );
   }
 
   const pattern = match?.[2];
   if (pattern?.includes('\0')) throw new PolicyError('NUL is not supported');
 
-  if (match?.[1] === 'BashRegex') {
-    return {selector: value, tool, pattern, regex: compileBashRegex(pattern)};
+  if (match?.[1] === 'BashRegex' || match?.[1] === 'BashRawRegex') {
+    return {
+      selector: value,
+      tool,
+      pattern,
+      regex: compileBashRegex(pattern),
+      ...(match[1] === 'BashRawRegex' ? {flatten: false as const} : {}),
+    };
   }
 
   if (pattern !== undefined) {
@@ -167,21 +178,6 @@ export function loadPolicy(path: string): Policy {
         : 'Cannot read or parse JSON';
     throw new PolicyError(
       `Policy configuration error at ${visible(path)}: ${detail}. Repair externally.`,
-    );
-  }
-}
-
-// One POSIX-ERE regex per line, shared with the other agents' guards.
-export function loadShared(path: string): RegExp[] {
-  try {
-    return readFileSync(path, 'utf8')
-      .split(/\r?\n/u)
-      .map(line => line.trim())
-      .filter(line => line && !line.startsWith('#'))
-      .map(line => new RegExp(line.replaceAll('[:space:]', '\\s'), 'm'));
-  } catch {
-    throw new PolicyError(
-      `Shared policy configuration error at ${visible(path)}. Repair externally.`,
     );
   }
 }

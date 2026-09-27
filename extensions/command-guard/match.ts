@@ -41,7 +41,10 @@ function flattened(command: string): string {
 // `commands` holds the command as written and its canonical spelling.
 function bashMatches(rule: Rule, commands: string[]): boolean {
   const {regex, pattern} = rule;
-  const spellings = commands.flatMap(command => [command, flattened(command)]);
+  const spellings =
+    rule.flatten === false
+      ? commands
+      : commands.flatMap(command => [command, flattened(command)]);
 
   if (regex) return spellings.some(text => regex.test(text));
   if (pattern === undefined) return true;

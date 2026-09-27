@@ -74,18 +74,14 @@ const callGuard = (
 function setup({
   deny = [],
   ask = [],
-  shared = '# synthetic baseline\n',
   answer = true,
 }: {
   deny?: unknown[];
   ask?: unknown[];
-  shared?: string;
   answer?: unknown;
 } = {}) {
   const cwd = mkdtempSync(join(root, 'case-'));
-  const sharedPath = join(cwd, 'dangerous-patterns.txt');
   const policyPath = join(cwd, 'command-guard.json');
-  writeFileSync(sharedPath, shared);
   writeFileSync(policyPath, JSON.stringify(policy(deny, ask)));
   const prompts: Prompt[] = [];
   const controller = new AbortController();
@@ -101,10 +97,9 @@ function setup({
       },
     },
   };
-  const guard = createCommandGuard({sharedPath, policyPath, homeDir: cwd});
+  const guard = createCommandGuard({policyPath, homeDir: cwd});
   return {
     cwd,
-    sharedPath,
     policyPath,
     prompts,
     controller,
@@ -133,14 +128,14 @@ test('unmatched calls and unsupported tools proceed without prompts', async () =
   assert.equal(h.prompts.length, 0);
 });
 
-test('shared regex denies precede JSON policy and never prompt', async () => {
+test('raw regex denies never prompt and invalid JSON fails closed', async () => {
   const h = setup({
-    shared: '# comment\n\n^git[[:space:]]+push\n',
+    deny: ['BashRawRegex(^git\\s+push)'],
     ask: ['Bash'],
   });
-  blocked(await h.call(bash('git\tpush origin feature')), /shared/i);
+  blocked(await h.call(bash('git\tpush origin feature')), /JSON deny/i);
   h.update({invalid: true});
-  blocked(await h.call(bash('git push origin feature')), /shared/i);
+  blocked(await h.call(bash('git push origin feature')), /configuration/i);
   assert.equal(h.prompts.length, 0);
 });
 
@@ -305,22 +300,20 @@ for (const invalid of [
   });
 }
 
-test('missing and unreadable JSON block; missing/broken shared policy blocks only Bash', async () => {
+test('missing and unreadable JSON block every covered tool without prompts', async () => {
   const h = setup();
   for (const policyPath of [join(h.cwd, 'absent.json'), h.cwd]) {
-    const guard = createCommandGuard({sharedPath: h.sharedPath, policyPath});
-    blocked(await callGuard(guard, bash(), h.ctx));
-    blocked(await callGuard(guard, file('read', 'x'), h.ctx));
+    const guard = createCommandGuard({policyPath});
+    for (const event of [
+      bash(),
+      file('read', 'x'),
+      file('edit', 'x'),
+      file('write', 'x'),
+    ]) {
+      blocked(await callGuard(guard, event, h.ctx), /configuration/i);
+    }
   }
-  const guard = createCommandGuard({
-    sharedPath: join(h.cwd, 'absent.txt'),
-    policyPath: h.policyPath,
-  });
-  blocked(await callGuard(guard, bash(), h.ctx));
-  assert.equal(await callGuard(guard, file('read', 'x'), h.ctx), undefined);
-  writeFileSync(h.sharedPath, '[invalid regex');
-  blocked(await h.call());
-  assert.equal(await h.call(file('read', 'x')), undefined);
+  assert.equal(h.prompts.length, 0);
 });
 
 test('invalid covered tool inputs fail closed', async () => {
@@ -431,7 +424,6 @@ for (const tool of ['edit', 'write']) {
     );
     for (const path of [
       h.policyPath,
-      h.sharedPath,
       join(h.cwd, 'policy-alias'),
       extensionPath,
       helperPath,
@@ -593,8 +585,8 @@ for (const selector of [
   });
 }
 
-// Expected verdicts for the repository policy alone (the shared file is empty
-// here). Set COMMAND_GUARD_POLICY to check a candidate before installing it.
+// Expected verdicts for the single repository policy.
+// Set COMMAND_GUARD_POLICY to check a candidate before installing it.
 const policyExamples = {
   deny: [
     ['bash', 'git push origin main'],
@@ -846,11 +838,6 @@ const policyExamples = {
 const repositoryPolicy =
   process.env.COMMAND_GUARD_POLICY ??
   resolve(import.meta.dirname, '../command-guard.json');
-const sharedFixture = resolve(
-  import.meta.dirname,
-  'fixtures/command-guard-shared.txt',
-);
-
 async function wrongVerdicts(
   h: ReturnType<typeof setup>,
   guard: ReturnType<typeof createCommandGuard>,
@@ -884,25 +871,18 @@ async function wrongVerdicts(
 test('policy examples: repository policy gives the expected verdict for each case', async () => {
   const h = setup();
   const guard = createCommandGuard({
-    sharedPath: h.sharedPath,
     policyPath: repositoryPolicy,
     homeDir: h.cwd,
   });
   assert.deepEqual(await wrongVerdicts(h, guard, policyExamples), []);
 });
 
-test('policy examples: verdicts hold with the shared baseline fixture layered on top', async () => {
+test('unified denies see through Git and GitHub global options and quoting', async () => {
   const h = setup();
   const guard = createCommandGuard({
-    sharedPath: sharedFixture,
     policyPath: repositoryPolicy,
     homeDir: h.cwd,
   });
-  assert.deepEqual(await wrongVerdicts(h, guard, policyExamples), []);
-});
-
-test('shared baseline rules see through Git and GitHub global options and quoting', async () => {
-  const h = setup({shared: readFileSync(sharedFixture, 'utf8')});
   for (const command of [
     'gh -R o/r repo delete',
     'gh --repo o/r api -X DELETE repos/o/r',
@@ -913,16 +893,18 @@ test('shared baseline rules see through Git and GitHub global options and quotin
     'gh api -X=DELETE repos/o/r',
     'gh -R o/r api -iXDELETE repos/o/r',
   ]) {
-    blocked(await h.call(bash(command)), /shared/i);
+    blocked(await callGuard(guard, bash(command), h.ctx), /JSON deny/i);
   }
-  assert.equal(await h.call(bash('gh -R o/r pr view 3')), undefined);
+  assert.equal(
+    await callGuard(guard, bash('gh -R o/r pr view 3'), h.ctx),
+    undefined,
+  );
   assert.equal(h.prompts.length, 0);
 });
 
-test('the shared baseline owns the DELETE deny; the repository policy alone asks', async () => {
+test('unified repository policy denies API DELETE without prompting', async () => {
   const h = setup();
-  const alone = createCommandGuard({
-    sharedPath: h.sharedPath,
+  const guard = createCommandGuard({
     policyPath: repositoryPolicy,
     homeDir: h.cwd,
   });
@@ -930,14 +912,9 @@ test('the shared baseline owns the DELETE deny; the repository policy alone asks
     'gh api -X DELETE repos/o/r',
     'gh api -XDELETE repos/o/r',
   ]) {
-    const before = h.prompts.length;
-    assert.equal(
-      await callGuard(alone, bash(command), h.ctx),
-      undefined,
-      command,
-    );
-    assert.equal(h.prompts.length, before + 1, command);
+    blocked(await callGuard(guard, bash(command), h.ctx), /JSON deny/i);
   }
+  assert.equal(h.prompts.length, 0);
 });
 
 test('checkout after a directory change is judged where Git would run', async () => {
@@ -971,7 +948,6 @@ for (const mode of ['tui', 'rpc', 'print', 'json'] as const) {
     h.ctx.mode = mode;
     h.ctx.hasUI = mode === 'tui' || mode === 'rpc';
     const guard = createCommandGuard({
-      sharedPath: sharedFixture,
       policyPath: repositoryPolicy,
       homeDir: h.cwd,
     });
@@ -999,7 +975,7 @@ for (const mode of ['tui', 'rpc', 'print', 'json'] as const) {
     ]) {
       blocked(
         await callGuard(guard, bash(command), h.ctx),
-        /command guard|shared|deny/i,
+        /command guard|deny/i,
       );
     }
     assert.equal(h.prompts.length, 0);
@@ -1068,11 +1044,6 @@ test("a safe push never bypasses another segment's deny or ask, nor bad configur
   assert.equal(h.prompts.length, 2);
   h.update({invalid: true});
   blocked(await h.call(bash(safe)), /configuration/i);
-  h.update(policy());
-  writeFileSync(h.sharedPath, '[invalid regex');
-  blocked(await h.call(bash(safe)), /configuration/i);
-  const shared = setup({shared: 'blocked-fixture\n'});
-  blocked(await shared.call(bash(`${safe}; blocked-fixture`)), /shared/i);
 });
 
 test('undecodable shell nesting fails closed', async () => {
@@ -1242,10 +1213,6 @@ test('Pi discovers a cloned repository in the user extensions directory', async 
     join(clone, 'command-guard.json'),
   );
   cpSync(
-    resolve(import.meta.dirname, '../dangerous-patterns.txt'),
-    join(clone, 'dangerous-patterns.txt'),
-  );
-  cpSync(
     resolve(import.meta.dirname, '../extensions'),
     join(clone, 'extensions'),
     {recursive: true},
@@ -1315,7 +1282,6 @@ for (const tool of ['edit', 'write']) {
     const h = setup();
     for (const path of [
       resolve(import.meta.dirname, '../command-guard.json'),
-      resolve(import.meta.dirname, '../dangerous-patterns.txt'),
       resolve(import.meta.dirname, '../package.json'),
       join(homedir(), '.pi/agent/extensions/command-guard.ts'),
       join(homedir(), '.pi/agent/extensions/command-guard/policy.ts'),
@@ -1351,10 +1317,6 @@ function relocationFixture(
       join(source, 'command-guard.json'),
       JSON.stringify(configuration),
     );
-  writeFileSync(
-    join(source, 'dangerous-patterns.txt'),
-    'blocked-shared-fixture\n',
-  );
   symlinkSync(
     join(extensions, 'command-guard.ts'),
     join(legacy, 'command-guard.ts'),
@@ -1406,17 +1368,13 @@ for (const viaLink of [false, true]) {
     );
     assert.equal(await runner.emitToolCall(bash('allowed-fixture')), undefined);
     blocked(await runner.emitToolCall(bash('blocked-fixture')), /deny/i);
-    blocked(
-      await runner.emitToolCall(bash('blocked-shared-fixture')),
-      /shared/i,
-    );
     assert.equal(await runner.emitToolCall(bash('ask-fixture')), undefined);
     assert.equal(prompts.length, 1);
     for (const tool of ['edit', 'write']) {
       for (const path of [
         join(fixture.source, 'command-guard.json'),
         join(fixture.cwd, 'policy-alias.json'),
-        join(fixture.source, 'dangerous-patterns.txt'),
+        join(fixture.source, 'package.json'),
         join(fixture.extensions, 'command-guard.ts'),
         join(fixture.legacy, 'command-guard.ts'),
         join(fixture.extensions, 'command-guard/policy.ts'),
@@ -1531,9 +1489,15 @@ test('startup clears the footer without adding a healthy status label', async ()
   assert.deepEqual(notices, []);
 });
 
-for (const configuration of [null, {invalid: true}]) {
+for (const configuration of [null, {invalid: true}, 'unreadable', 'syntax']) {
   test(`bad repository policy notifies and fails closed without falling back: ${JSON.stringify(configuration)}`, async () => {
-    const fixture = relocationFixture(configuration);
+    const fixture = relocationFixture(
+      typeof configuration === 'string' ? null : configuration,
+    );
+    const policyPath = join(fixture.source, 'command-guard.json');
+    if (configuration === 'unreadable') mkdirSync(policyPath);
+    if (configuration === 'syntax')
+      writeFileSync(policyPath, '{synthetic-private');
     const runner = await relocatedRunner(fixture);
     const statuses: unknown[][] = [];
     const notices: unknown[][] = [];
@@ -1552,10 +1516,18 @@ for (const configuration of [null, {invalid: true}]) {
     const message = notices[0][0];
     assert.ok(typeof message === 'string');
     assert.ok(message.includes(join(fixture.source, 'command-guard.json')));
-    blocked(
-      await runner.emitToolCall(bash('allowed-fixture')),
-      /configuration/i,
-    );
+    assert.doesNotMatch(message, /synthetic-private/);
+    for (const event of [
+      bash('allowed-fixture'),
+      file('read', 'x'),
+      file('edit', 'x'),
+      file('write', 'x'),
+    ]) {
+      blocked(await runner.emitToolCall(event), /configuration/i);
+    }
+    setTestUI(runner, undefined, 'print');
+    await runner.emit({type: 'session_start', reason: 'reload'});
+    assert.equal(notices.length, 1);
   });
 }
 
