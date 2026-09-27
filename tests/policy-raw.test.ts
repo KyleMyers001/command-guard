@@ -1,21 +1,8 @@
 import assert from 'node:assert/strict';
-import {writeFileSync} from 'node:fs';
-import {join} from 'node:path';
 import test from 'node:test';
-import type {TestContext} from 'node:test';
 import {fixture} from './helpers/fixtures.ts';
-import {loadPolicy} from '../extensions/command-guard/policy.ts';
+import {rule} from './helpers/policy-rule.ts';
 import {matches} from '../extensions/command-guard/match.ts';
-
-function rule(t: TestContext, selector: unknown) {
-  const root = fixture(t);
-  const path = join(root, 'policy.json');
-  writeFileSync(
-    path,
-    JSON.stringify({version: 1, permissions: {deny: [selector], ask: []}}),
-  );
-  return loadPolicy(path).deny[0];
-}
 
 test('BashRawRegex matches raw and canonical but never flattened spellings', t => {
   const root = fixture(t);

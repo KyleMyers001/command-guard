@@ -3,7 +3,6 @@ import {execFile, spawnSync} from 'node:child_process';
 import {promisify} from 'node:util';
 import {setTimeout as delay} from 'node:timers/promises';
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -54,31 +53,70 @@ function child(root: string, mode = 'success', keep?: string) {
   );
 }
 
-test('successful child cleans its allocated fixture', t => {
-  const root = harness(t);
-  const result = child(root);
-  assert.equal(result.status, 0, result.stdout + result.stderr);
-  assert.match(result.stdout, /ALLOCATED/);
-  assert.deepEqual(readdirSync(root), []);
-});
+const lifecycleCases = [
+  {name: 'successful child cleans its allocated fixture', mode: 'success'},
+  {
+    name: 'exact retention flag keeps the owned root and prints a safe path',
+    mode: 'success',
+    keep: '1',
+  },
+  ...['assertion-failure', 'setup-failure'].map(mode => ({
+    name: `${mode} cleans after allocation and preserves the failure`,
+    mode,
+  })),
+  ...['', '0', 'true', 'yes', '01', ' 1'].map(keep => ({
+    name: `retention value ${JSON.stringify(keep)} still cleans`,
+    mode: 'success',
+    keep,
+  })),
+  {
+    name: 'retention also keeps an ordinary failed test fixture',
+    mode: 'assertion-failure',
+    keep: '1',
+  },
+  {
+    name: 'cleanup of an already removed owned root is harmless',
+    mode: 'already-removed',
+  },
+];
 
-test('exact retention flag keeps the owned root and prints a safe path', t => {
-  const root = harness(t);
-  const result = child(root, 'success', '1');
-  assert.equal(result.status, 0, result.stdout + result.stderr);
-  const entries = readdirSync(root);
-  assert.equal(entries.length, 1);
-  const retained = join(root, entries[0]);
-  assert.ok(
-    result.stdout.includes(
-      `Retained test fixture: ${JSON.stringify(retained)}`,
-    ),
-  );
-  assert.equal(
-    readFileSync(join(retained, 'policy.json'), 'utf8'),
-    'synthetic',
-  );
-});
+for (const {name, mode, keep} of lifecycleCases) {
+  test(name, t => {
+    const root = harness(t);
+    const result = child(root, mode, keep);
+    const failed = mode === 'assertion-failure' || mode === 'setup-failure';
+    assert.equal(result.status, failed ? 1 : 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /ALLOCATED/);
+    if (failed) {
+      assert.match(
+        result.stdout,
+        mode === 'assertion-failure'
+          ? /original synthetic assertion/
+          : /EISDIR/,
+      );
+    }
+    const entries = readdirSync(root);
+    if (keep === '1') {
+      assert.equal(entries.length, 1);
+      const retained = join(root, entries[0]);
+      assert.ok(
+        result.stdout.includes(
+          `Retained test fixture: ${JSON.stringify(retained)}`,
+        ),
+      );
+      assert.equal(
+        readFileSync(join(retained, 'policy.json'), 'utf8'),
+        'synthetic',
+      );
+    } else {
+      assert.doesNotMatch(
+        result.stdout + result.stderr,
+        /Retained test fixture/,
+      );
+      assert.deepEqual(entries, []);
+    }
+  });
+}
 
 test('retained path diagnostics escape terminal controls in the temp parent', t => {
   const outer = harness(t);
@@ -94,20 +132,6 @@ test('retained path diagnostics escape terminal controls in the temp parent', t 
   assert.ok(!result.stdout.includes(temp));
   assert.ok(!result.stderr.includes(temp));
 });
-
-for (const mode of ['assertion-failure', 'setup-failure']) {
-  test(`${mode} cleans after allocation and preserves the failure`, t => {
-    const root = harness(t);
-    const result = child(root, mode);
-    assert.equal(result.status, 1, result.stdout + result.stderr);
-    assert.match(
-      result.stdout,
-      mode === 'assertion-failure' ? /original synthetic assertion/ : /EISDIR/,
-    );
-    assert.match(result.stdout, /ALLOCATED/);
-    assert.deepEqual(readdirSync(root), []);
-  });
-}
 
 for (const keep of [undefined, '1']) {
   test(`shared layout setup failure preserves the error and ${keep === '1' ? 'retains' : 'cleans'} its fixture`, t => {
@@ -156,32 +180,6 @@ for (const keep of [undefined, '1']) {
   });
 }
 
-for (const keep of ['', '0', 'true', 'yes', '01', ' 1']) {
-  test(`retention value ${JSON.stringify(keep)} still cleans`, t => {
-    const root = harness(t);
-    const result = child(root, 'success', keep);
-    assert.equal(result.status, 0, result.stdout + result.stderr);
-    assert.doesNotMatch(result.stdout + result.stderr, /Retained test fixture/);
-    assert.deepEqual(readdirSync(root), []);
-  });
-}
-
-test('retention also keeps an ordinary failed test fixture', t => {
-  const root = harness(t);
-  const result = child(root, 'assertion-failure', '1');
-  assert.equal(result.status, 1);
-  assert.match(result.stdout, /original synthetic assertion/);
-  assert.match(result.stdout, /Retained test fixture/);
-  assert.equal(readdirSync(root).length, 1);
-});
-
-test('cleanup of an already removed owned root is harmless', t => {
-  const root = harness(t);
-  const result = child(root, 'already-removed');
-  assert.equal(result.status, 0, result.stdout + result.stderr);
-  assert.deepEqual(readdirSync(root), []);
-});
-
 test('cleanup unlinks nested external symlinks and loops without touching siblings', t => {
   const root = harness(t);
   mkdirSync(join(root, 'sibling'));
@@ -197,18 +195,29 @@ test('cleanup unlinks nested external symlinks and loops without touching siblin
 });
 
 for (const mode of ['cleanup-error', 'both-errors']) {
-  test(`${mode} surfaces real filesystem cleanup errors without losing the assertion`, t => {
+  test(`${mode} surfaces injected filesystem cleanup errors without losing the assertion`, t => {
     const root = harness(t);
     const result = child(root, mode);
-    // Restore only directories created by this child inside our disposable harness.
-    // Do so before assertions, so even a regression cannot strand a readonly root.
     const entries = readdirSync(root);
-    for (const entry of entries) chmodSync(join(root, entry), 0o700);
     assert.equal(result.status, 1, result.stdout + result.stderr);
     assert.equal(entries.length, 1);
+    const retained = join(root, entries[0]);
+    assert.ok(result.stdout.includes(`ALLOCATED ${JSON.stringify(retained)}`));
+    assert.equal(
+      readFileSync(join(retained, 'policy.json'), 'utf8'),
+      'synthetic',
+    );
     assert.match(
       result.stdout + result.stderr,
-      /Fixture cleanup failed \((?:EACCES|EPERM|ENOTEMPTY)\)/,
+      /Fixture cleanup failed \(EACCES\)/,
+    );
+    if (mode === 'cleanup-error') {
+      assert.match(result.stdout, /failureType: 'hookFailed'/);
+      assert.match(result.stdout, /code: 'EACCES'/);
+    }
+    assert.match(
+      result.stdout + result.stderr,
+      /INJECTED EACCES: synthetic fixture cleanup failure/,
     );
     if (mode === 'both-errors')
       assert.match(result.stdout, /original synthetic assertion/);
@@ -300,9 +309,8 @@ for (const suite of [
     }
     const before = readdirSync(home, {recursive: true}).sort();
     const env: NodeJS.ProcessEnv = {
-      ...process.env,
+      ...childEnv(temp, 'standalone'),
       HOME: home,
-      TMPDIR: temp,
       // Exercise the actual Pi loader without its unrelated persistent cache.
       JITI_FS_CACHE: 'false',
       PI_PACKAGE_DIR: resolve(
@@ -310,8 +318,6 @@ for (const suite of [
         '../node_modules/@earendil-works/pi-coding-agent',
       ),
     };
-    delete env.NODE_TEST_CONTEXT;
-    delete env.COMMAND_GUARD_KEEP_TEST_FIXTURES;
     const result = spawnSync(
       process.execPath,
       ['--test', `tests/${suite}.test.ts`],

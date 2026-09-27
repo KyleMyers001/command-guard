@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import {
-  chmodSync,
+import fs, {
   existsSync,
   mkdirSync,
   readFileSync,
@@ -8,6 +7,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import {syncBuiltinESMExports} from 'node:module';
 import {tmpdir} from 'node:os';
 import {fixture} from './fixtures.ts';
 import {join} from 'node:path';
@@ -45,8 +45,23 @@ void test('synthetic lifecycle', async t => {
     assert.equal(readFileSync(join(root, 'policy.json'), 'utf8'), slot);
   }
   if (mode === 'already-removed') rmSync(root, {recursive: true});
-  if (mode === 'cleanup-error' || mode === 'both-errors')
-    chmodSync(root, 0o500);
+  if (mode === 'cleanup-error' || mode === 'both-errors') {
+    // Child-only injection: exercise the real after hook independent of uid.
+    const originalRmSync = fs.rmSync;
+    fs.rmSync = (path, options) => {
+      if (path === root) {
+        const error = Object.assign(
+          new Error('INJECTED EACCES: synthetic fixture cleanup failure'),
+          {code: 'EACCES'},
+        );
+        // Node may report only the body assertion when the after hook also fails.
+        console.error(error.message);
+        throw error;
+      }
+      return originalRmSync(path, options);
+    };
+    syncBuiltinESMExports();
+  }
   if (mode === 'assertion-failure' || mode === 'both-errors')
     assert.fail('original synthetic assertion');
   assert.ok(true);

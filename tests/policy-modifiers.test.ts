@@ -1,22 +1,10 @@
 import assert from 'node:assert/strict';
-import {writeFileSync} from 'node:fs';
-import {join} from 'node:path';
 import test from 'node:test';
 import type {TestContext} from 'node:test';
-import {fixture} from './helpers/fixtures.ts';
-import {loadPolicy} from '../extensions/command-guard/policy.ts';
+import {rule} from './helpers/policy-rule.ts';
 
 function regex(t: TestContext, source: string) {
-  const root = fixture(t);
-  const path = join(root, 'policy.json');
-  writeFileSync(
-    path,
-    JSON.stringify({
-      version: 1,
-      permissions: {deny: [`BashRegex(${source})`], ask: []},
-    }),
-  );
-  const compiled = loadPolicy(path).deny[0].regex;
+  const compiled = rule(t, `BashRegex(${source})`).regex;
   assert.ok(compiled);
   return compiled;
 }
