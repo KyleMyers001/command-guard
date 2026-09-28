@@ -10,7 +10,6 @@
   "files": [
     "extensions",
     "command-guard.json",
-    "docs/policy-migration.md",
     "README.md"
   ],
   "pi": {

@@ -224,7 +224,6 @@ Add or update a policy example whenever a rule changes. The examples and the
 against the single JSON policy. The contract contains inputs and verdicts, not
 a second regex list. Historical line numbers refer to the reviewed revision
 `53b5bdc74ec81d20a34020399fc796035911e2b3`; tests never read the retired asset.
-See `docs/policy-migration.md` for the rule coverage map.
 
 ## Command analysis
 
