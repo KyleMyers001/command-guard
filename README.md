@@ -5,16 +5,15 @@ extension that inspects `bash`, `read`, `edit`, and `write` tool calls before Pi
 executes them. It blocks forbidden operations, asks for one-time approval for
 risky operations, and lets unmatched calls proceed.
 
-This repository is the authoritative home of the extension, its two policy
-assets, and its regression tests.
+This repository is the authoritative home of the extension, its single editable policy
+asset, and its regression tests.
 
 ## Repository layout
 
 - `extensions/command-guard.ts` — extension entrypoint and evaluation order
 - `extensions/command-guard/` — policy, path, matching, shell, and command
   analysis helpers
-- `command-guard.json` — editable Pi-specific deny/ask policy
-- `dangerous-patterns.txt` — shared dangerous-command deny baseline
+- `command-guard.json` — the only editable deny/ask policy asset
 - `tests/` — unit, policy, relocation, and installed-Pi integration tests
 
 The helper directory intentionally has no `index.ts`; Pi loads only the
@@ -31,13 +30,45 @@ npm run test:coverage
 ```
 
 `npm run check` runs ESLint with zero warnings, strict TypeScript validation
-(including both `.test.ts` suites), and the complete Node test suite.
+(including all `.test.ts` suites), and the complete Node test suite.
 `npm run test:coverage` runs the same suite with coverage limited to the
 repository's extension sources. Tests and extension files run directly as
 TypeScript on Node 22.19+; keep their syntax erasable (no runtime enums or
-parameter properties), since Node strips types without compiling. Test command
-strings are parsed but never executed. Synthetic filesystem fixtures are
-retained under `~/Workbench/Investigations/pi-extension-tests/`.
+parameter properties), since Node strips types without compiling. Guard command
+strings are parsed but never executed; lifecycle acceptance tests launch only
+harmless synthetic Node test processes.
+
+### Test fixture lifecycle
+
+Writable fixtures use unique, test-owned directories from `os.tmpdir()` and are
+removed after their test finishes, including ordinary assertion or setup failures
+following allocation. The shared command-layout fixture is read-only during tests
+and is removed by its suite's teardown. Mutable policies and relocated extension
+copies never share a writable root between cases. Cleanup errors fail an otherwise
+successful test and are diagnosed separately if a test has already failed.
+
+To retain fixtures while debugging, opt in explicitly:
+
+```bash
+COMMAND_GUARD_KEEP_TEST_FIXTURES=1 npm test
+```
+
+Only the exact value `1` retains fixtures, for both passing and failing tests.
+Each retained path is printed as a JSON-quoted diagnostic; no fixture contents are
+printed. Unset the flag (or use any other value) for normal cleanup. The lifecycle
+acceptance suite always removes its own disposable outer harness, including the
+fixtures it intentionally retains to test this flag.
+
+Temporary placement follows the environment (`TMPDIR` on macOS/Linux); tests do
+not default to Workbench or require a machine-specific scratch path. Retained
+temporary data may still be pruned by the environment. Copy useful evidence to an
+investigation directory explicitly if it needs to persist.
+
+Teardown cannot guarantee cleanup after SIGKILL, a process crash, or machine
+shutdown. There is no age/prefix scavenger and no automatic retain-on-failure
+mode. Existing retained Workbench data is not changed or removed by these tests.
+The lifecycle tests cover real subprocess exits, synthetic HOME sentinels,
+concurrent ownership, and symlink cleanup without targeting real user data.
 
 ESLint uses `gts@7`'s Google-associated TypeScript rules and Prettier settings
 in `.prettierrc.json`. This is a practical automated baseline, not full
@@ -82,9 +113,12 @@ git -C ~/.pi/agent/extensions/command-guard switch main
 git -C ~/.pi/agent/extensions/command-guard pull --ff-only
 ```
 
-Run `/reload` after changing the checked-out code. Policy files are read on each
-covered call, so valid policy changes apply immediately. A missing or invalid
-policy fails closed; it never falls back to an older copy.
+Stop active sessions before replacing code or policy assets; stage and validate
+the complete matching revision first, then restart/reload every affected session.
+Do not change assets underneath an old loaded extension. The JSON policy is read
+on each covered call, so valid edits apply immediately; code stays cached until
+reload. Missing, unreadable, or invalid JSON fails closed with no fallback.
+See the migration and rollback gates below before upgrading an older install.
 
 ### Testing a feature branch
 
@@ -116,7 +150,8 @@ Two loaded guards can evaluate the same call and prompt twice.
 1. Built-in protection prevents `edit` and `write` from changing guard-owned
    files (including `package.json`, which selects the loaded extension), helper
    directories, and the known legacy entrypoint alias.
-2. Shared regex matches deny Bash calls.
+2. Load and strictly validate `command-guard.json`; configuration errors block
+   every covered tool. Startup reports unhealthy policy without quoting contents.
 3. Command-analysis denies and JSON deny selectors block without an approval
    override.
 4. Command-analysis asks and JSON ask selectors require approval for that exact
@@ -149,10 +184,27 @@ Supported selectors:
 - `Bash(pattern)` performs anchored full-command glob matching. `*` matches any
   text, including newlines; other characters are literal.
 - `BashRegex(expression)` searches with a JavaScript regular expression using
-  the `u` flag.
+  the `u` flag. Whole-expression `(?i:...)`, `(?m:...)`, and `(?im:...)`
+  wrappers portably add case-insensitive, multiline, or both flags on Node
+  22.19+; ordinary expressions do not implicitly enable either flag. For
+  example, the JSON selector `"BashRegex((?m:^pass\\s+example$))"` matches
+  a complete line inside a multiline command. Regexes have no stateful `g` or
+  `y` flags. Other inline modifier forms depend on native runtime support.
+- `BashRawRegex(expression)` uses exactly the same regex engine, `u` flag, and
+  modifier support as `BashRegex`, but checks **raw and canonical spellings only**,
+  never their flattened forms. It is not literal-raw-only matching. Use it when
+  whitespace/continuation provenance matters; the migrated historical denies
+  use `BashRawRegex((?m:...))` to preserve their original matching scope.
 - File selectors use `~/` for home, `//` for filesystem root, and relative paths
   for the current working directory. `*` stays within one segment; a complete
   `**` segment spans zero or more segments.
+
+`Bash(pattern)` and `BashRegex(expression)` check raw and canonical spellings
+and their flattened forms (backslash-LF/CRLF becomes a space, then runs of spaces
+and tabs collapse). `BashRawRegex` does not add those flattened forms; canonical
+command analysis is unchanged and can itself normalize quoting and arguments.
+Selectors remain strings, not rule objects; there is no JSON `flatten` field or
+generic flags API.
 
 A single leading `/`, file-pattern `..`, character classes, `?`, braces,
 parentheses, backslash escaping, partial `**` segments, unknown fields, and
@@ -164,12 +216,14 @@ To check a candidate policy before replacing the active file:
 
 ```bash
 COMMAND_GUARD_POLICY=/path/to/candidate.json \
-  node --test --test-name-pattern="policy examples" \
-  tests/command-guard.test.ts
+  npm test
 ```
 
-Add or update a policy example whenever a rule changes. The examples pin allow,
-ask, and deny behavior both with and without the shared baseline fixture.
+Add or update a policy example whenever a rule changes. The examples and the
+879-row migration contract pin ALLOW, ASK (including prompt count), and DENY
+against the single JSON policy. The contract contains inputs and verdicts, not
+a second regex list. Historical line numbers refer to the reviewed revision
+`53b5bdc74ec81d20a34020399fc796035911e2b3`; tests never read the retired asset.
 
 ## Command analysis
 
@@ -206,23 +260,43 @@ server-side branch protection and operating-system isolation for controls that
 must not depend on agent behavior. Never put secrets in policy selectors, test
 fixtures, or tool arguments.
 
-## Migrating a legacy symlink installation
+## Migrating an older installation
 
-Before changing a live installation:
+The single-policy revision retires `dangerous-patterns.txt`. All 36 historical
+patterns move, in order, to the front of JSON denies using multiline raw/canonical
+matching. The previous 66 deny and 50 ask selectors remain unchanged. Semantic
+classifiers and built-in self-protection are still code, not editable regexes.
+No permission relaxation, broad-mention fix, or Git-rule de-duplication is part
+of this migration.
 
-1. Merge and verify the intended commit on `main`.
-2. Clone that commit to a staging directory and run `npm ci && npm run check`.
-3. Record the current extension symlink targets and relevant Pi settings.
-4. Obtain explicit operator approval before removing or replacing symlinks.
-5. Remove the explicit `+extensions/command-guard.ts` settings entry, if present.
-6. Remove the legacy entrypoint symlink and replace the legacy helper-directory
-   symlink with the verified runtime clone.
-7. Remove obsolete Command Guard links under `~/.agents/hooks/`; Pi does not use
-   them because both policy assets are repository-relative.
-8. Run `/reload` in every active Pi session and validate with harmless synthetic
-   allow, declined-ask, and deny inputs.
+Before activation (separate from review, publication, and merge approval):
 
-If loading or policy validation fails, use an external terminal to move the
-runtime clone aside, restore the recorded extension symlinks, and restart or
-reload Pi. The obsolete `~/.agents/hooks/` links do not need to be restored. Do
-not submit a destructive command merely to test a deny.
+1. Inventory the actual target installation, loaded extensions, symlinks, and
+   external consumers of the retired text asset, including other agents and
+   `~/.agents/hooks/` readers. Do not remove another consumer's dependency until
+   its own migration is approved. A permanent manually maintained copy is not
+   a single source of truth.
+2. Record the previous revision, symlink targets, Pi settings, and local policy
+   customizations. Migrate custom patterns too; do not overwrite them blindly.
+3. Stage the complete intended revision outside the live installation. Run
+   `npm ci`, `npm run check`, `npm run test:coverage`, and inspect
+   `npm pack --dry-run --json`. The package has one JSON policy and no text asset.
+4. Obtain activation approval, then stop/pause all active Pi sessions before
+   replacing the runtime revision and its assets together. Never delete an old
+   loader's expected asset while that loader is running.
+5. For a legacy symlink installation, record and remove the explicit extension
+   settings entry and replace the old entrypoint/helper links with the verified
+   runtime clone. Remove obsolete links only after the external-consumer gate.
+   Do not load both the clone and the legacy extension alias.
+6. Restart/reload every affected session against that complete revision. Verify
+   exactly one loaded extension, healthy startup, repository-relative JSON,
+   harmless ALLOW and declined ASK, and synthetic DENY through a non-executing
+   harness. Validate native UI separately: mock confirmations do not prove
+   dialog rendering. Never submit a destructive command to test a deny.
+
+**Rollback:** From an external terminal, stop affected sessions and restore the
+entire recorded previous revision, its matching policy assets (including the text
+asset if the old loader expects it), customizations, settings, and symlink targets.
+Restart/reload every session. Do not roll back only code or only JSON, and do not
+assume another agent's removed links are disposable. Live installation and
+cross-machine checks remain operator activation gates, not development-test claims.

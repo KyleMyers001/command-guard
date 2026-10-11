@@ -10,7 +10,6 @@
   "files": [
     "extensions",
     "command-guard.json",
-    "dangerous-patterns.txt",
     "README.md"
   ],
   "pi": {

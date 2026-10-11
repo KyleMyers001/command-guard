@@ -12,7 +12,6 @@ import {matches} from './command-guard/match.ts';
 import {canonicalPath, inputPaths} from './command-guard/paths.ts';
 import {
   loadPolicy,
-  loadShared,
   PolicyError,
   visible,
   type GuardTool,
@@ -27,7 +26,6 @@ const home = homedir();
 const extensionPath = canonicalPath(fileURLToPath(import.meta.url));
 const extensionDir = dirname(extensionPath);
 const policyPath = join(extensionDir, '../command-guard.json');
-const sharedPath = join(extensionDir, '../dangerous-patterns.txt');
 
 const legacyFiles = [join(home, '.pi/agent/extensions/command-guard.ts')];
 
@@ -38,7 +36,6 @@ const protectedDirs = [
 ];
 
 interface GuardOptions {
-  sharedPath?: string;
   policyPath?: string;
   homeDir?: string;
 }
@@ -142,16 +139,13 @@ async function requestApproval(
 }
 
 export function createCommandGuard(options: GuardOptions = {}) {
-  const shared = options.sharedPath ?? sharedPath;
   const policyFile = options.policyPath ?? policyPath;
   const homeDir = options.homeDir ?? home;
 
   // Test policy paths are additive: injection cannot remove production protections.
   const protectedFiles = [
     ...new Set([
-      sharedPath,
       policyPath,
-      shared,
       policyFile,
       extensionPath,
       join(extensionDir, '../package.json'),
@@ -192,13 +186,7 @@ export function createCommandGuard(options: GuardOptions = {}) {
       );
     }
 
-    // 2. Shared regex denies.
-    const sharedDenies = tool === 'bash' ? loadShared(shared) : [];
-    if (sharedDenies.some(regex => targets.some(text => regex.test(text)))) {
-      return block(`Denied by shared policy ${visible(shared)}.`);
-    }
-
-    // The policy loads before any verdict below, so a broken one blocks even
+    // 2. The policy loads before any verdict below, so a broken one blocks even
     // a command that analysis alone would let through.
     const policy = loadPolicy(policyFile);
     const matchesCall = (rule: Rule) =>
@@ -259,7 +247,6 @@ export default function commandGuard(pi: ExtensionAPI): void {
     if (ctx.hasUI) ctx.ui.setStatus('command-guard', undefined);
 
     try {
-      loadShared(sharedPath);
       loadPolicy(policyPath);
     } catch (error) {
       if (!ctx.hasUI) return;

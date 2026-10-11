@@ -3,7 +3,6 @@ import {
   accessSync,
   cpSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   realpathSync,
   symlinkSync,
@@ -13,6 +12,8 @@ import {homedir} from 'node:os';
 import {delimiter, dirname, join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import test from 'node:test';
+import type {TestContext as NodeTestContext} from 'node:test';
+import {fixture} from './helpers/fixtures.ts';
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -23,10 +24,7 @@ import type {
 import commandGuard, {createCommandGuard} from '../extensions/command-guard.ts';
 import {loadPolicy} from '../extensions/command-guard/policy.ts';
 
-// No test command is executed. Fixtures are retained; there is no cleanup hook.
-const evidence = join(homedir(), 'Workbench/Investigations/pi-extension-tests');
-mkdirSync(evidence, {recursive: true});
-const root = mkdtempSync(join(evidence, 'fixtures-'));
+// Guard command strings are inert data; test-owned fixtures clean up after use.
 const policy = (deny: unknown[] = [], ask: unknown[] = []) => ({
   version: 1,
   permissions: {deny, ask},
@@ -71,21 +69,20 @@ const callGuard = (
   ctx: TestContext,
 ) => guard(event, ctx as unknown as ExtensionContext);
 
-function setup({
-  deny = [],
-  ask = [],
-  shared = '# synthetic baseline\n',
-  answer = true,
-}: {
-  deny?: unknown[];
-  ask?: unknown[];
-  shared?: string;
-  answer?: unknown;
-} = {}) {
-  const cwd = mkdtempSync(join(root, 'case-'));
-  const sharedPath = join(cwd, 'dangerous-patterns.txt');
+function setup(
+  t: NodeTestContext,
+  {
+    deny = [],
+    ask = [],
+    answer = true,
+  }: {
+    deny?: unknown[];
+    ask?: unknown[];
+    answer?: unknown;
+  } = {},
+) {
+  const cwd = fixture(t);
   const policyPath = join(cwd, 'command-guard.json');
-  writeFileSync(sharedPath, shared);
   writeFileSync(policyPath, JSON.stringify(policy(deny, ask)));
   const prompts: Prompt[] = [];
   const controller = new AbortController();
@@ -101,10 +98,9 @@ function setup({
       },
     },
   };
-  const guard = createCommandGuard({sharedPath, policyPath, homeDir: cwd});
+  const guard = createCommandGuard({policyPath, homeDir: cwd});
   return {
     cwd,
-    sharedPath,
     policyPath,
     prompts,
     controller,
@@ -124,8 +120,8 @@ function blocked(
   if (reason) assert.match(result.reason, reason);
 }
 
-test('unmatched calls and unsupported tools proceed without prompts', async () => {
-  const h = setup();
+test('unmatched calls and unsupported tools proceed without prompts', async t => {
+  const h = setup(t);
   assert.equal(await h.call(), undefined);
   assert.equal(await h.call(file('read', 'fixture.txt')), undefined);
   h.update({invalid: true});
@@ -133,19 +129,19 @@ test('unmatched calls and unsupported tools proceed without prompts', async () =
   assert.equal(h.prompts.length, 0);
 });
 
-test('shared regex denies precede JSON policy and never prompt', async () => {
-  const h = setup({
-    shared: '# comment\n\n^git[[:space:]]+push\n',
+test('raw regex denies never prompt and invalid JSON fails closed', async t => {
+  const h = setup(t, {
+    deny: ['BashRawRegex(^git\\s+push)'],
     ask: ['Bash'],
   });
-  blocked(await h.call(bash('git\tpush origin feature')), /shared/i);
+  blocked(await h.call(bash('git\tpush origin feature')), /JSON deny/i);
   h.update({invalid: true});
-  blocked(await h.call(bash('git push origin feature')), /shared/i);
+  blocked(await h.call(bash('git push origin feature')), /configuration/i);
   assert.equal(h.prompts.length, 0);
 });
 
-test('JSON deny wins over ask and command arguments stay out of block reasons', async () => {
-  const h = setup({deny: ['Bash(*push*)'], ask: ['Bash']});
+test('JSON deny wins over ask and command arguments stay out of block reasons', async t => {
+  const h = setup(t, {deny: ['Bash(*push*)'], ask: ['Bash']});
   const result = await h.call(
     bash('git push origin synthetic-private-argument'),
   );
@@ -155,8 +151,8 @@ test('JSON deny wins over ask and command arguments stay out of block reasons', 
 });
 
 for (const tool of ['bash', 'read', 'edit', 'write']) {
-  test(`bare ${tool} selector matches every call`, async () => {
-    const h = setup({ask: [tool[0].toUpperCase() + tool.slice(1)]});
+  test(`bare ${tool} selector matches every call`, async t => {
+    const h = setup(t, {ask: [tool[0].toUpperCase() + tool.slice(1)]});
     const event =
       tool === 'bash'
         ? bash()
@@ -166,8 +162,8 @@ for (const tool of ['bash', 'read', 'edit', 'write']) {
   });
 }
 
-test('approval is once per invocation, shows cwd/rule/action and sets timeout/signal', async () => {
-  const h = setup({ask: ['Bash']});
+test('approval is once per invocation, shows cwd/rule/action and sets timeout/signal', async t => {
+  const h = setup(t, {ask: ['Bash']});
   assert.equal(await h.call(), undefined);
   assert.equal(await h.call(), undefined);
   assert.equal(h.prompts.length, 2);
@@ -180,16 +176,16 @@ test('approval is once per invocation, shows cwd/rule/action and sets timeout/si
 });
 
 for (const answer of [false, undefined, null, 'yes']) {
-  test(`only literal true approves, not ${String(answer)}`, async () => {
-    const h = setup({ask: ['Bash']});
+  test(`only literal true approves, not ${String(answer)}`, async t => {
+    const h = setup(t, {ask: ['Bash']});
     h.ctx.ui.confirm = async () => answer;
     blocked(await h.call());
   });
 }
 
 for (const mode of ['json', 'print'] as const) {
-  test(`${mode} blocks asks without calling UI`, async () => {
-    const h = setup({ask: ['Bash']});
+  test(`${mode} blocks asks without calling UI`, async t => {
+    const h = setup(t, {ask: ['Bash']});
     h.ctx.mode = mode;
     h.ctx.hasUI = false;
     blocked(await h.call(), /approval|UI/i);
@@ -197,25 +193,25 @@ for (const mode of ['json', 'print'] as const) {
   });
 }
 
-test('RPC uses native confirmation with a bounded timeout', async () => {
-  const h = setup({ask: ['Bash']});
+test('RPC uses native confirmation with a bounded timeout', async t => {
+  const h = setup(t, {ask: ['Bash']});
   h.ctx.mode = 'rpc';
   assert.equal(await h.call(), undefined);
   assert.equal(h.prompts[0][2].timeout, 120_000);
 });
 
-test('abort before and during approval blocks; UI failures do not leak errors', async () => {
-  const before = setup({ask: ['Bash']});
+test('abort before and during approval blocks; UI failures do not leak errors', async t => {
+  const before = setup(t, {ask: ['Bash']});
   before.controller.abort();
   blocked(await before.call());
   assert.equal(before.prompts.length, 0);
-  const during = setup({ask: ['Bash']});
+  const during = setup(t, {ask: ['Bash']});
   during.ctx.ui.confirm = async () => {
     during.controller.abort();
     return true;
   };
   blocked(await during.call());
-  const error = setup({ask: ['Bash']});
+  const error = setup(t, {ask: ['Bash']});
   error.ctx.ui.confirm = async () => {
     throw new Error('synthetic-sensitive-error');
   };
@@ -224,8 +220,8 @@ test('abort before and during approval blocks; UI failures do not leak errors', 
   assert.ok(!result.reason.includes('synthetic-sensitive-error'));
 });
 
-test('changing an invocation while approval is pending blocks execution', async () => {
-  const h = setup({ask: ['Bash']});
+test('changing an invocation while approval is pending blocks execution', async t => {
+  const h = setup(t, {ask: ['Bash']});
   const event = bash();
   h.ctx.ui.confirm = async () => {
     event.input.command = 'changed synthetic action';
@@ -234,8 +230,8 @@ test('changing an invocation while approval is pending blocks execution', async 
   blocked(await h.call(event), /changed/i);
 });
 
-test('mutation previews show proposed contents/edits and escape terminal controls', async () => {
-  const h = setup({ask: ['Write', 'Edit', 'Bash']});
+test('mutation previews show proposed contents/edits and escape terminal controls', async t => {
+  const h = setup(t, {ask: ['Write', 'Edit', 'Bash']});
   await h.call(
     file('write', 'fixture.txt', {content: 'new synthetic text\u001b[2J'}),
   );
@@ -251,8 +247,8 @@ test('mutation previews show proposed contents/edits and escape terminal control
   for (const prompt of h.prompts) assert.doesNotMatch(prompt[1], /[\u001b\r]/u);
 });
 
-test('policy reloads each call and recovers after syntax errors', async () => {
-  const h = setup();
+test('policy reloads each call and recovers after syntax errors', async t => {
+  const h = setup(t);
   assert.equal(await h.call(), undefined);
   h.update(policy([], ['Bash']));
   assert.equal(await h.call(), undefined);
@@ -290,8 +286,8 @@ for (const invalid of [
   policy(['Read(~/../*)']),
   policy(['Read(a/*/../b)']),
 ]) {
-  test(`invalid configuration fails closed: ${JSON.stringify(invalid)}`, async () => {
-    const h = setup();
+  test(`invalid configuration fails closed: ${JSON.stringify(invalid)}`, async t => {
+    const h = setup(t);
     h.update(invalid);
     for (const event of [
       bash(),
@@ -305,26 +301,24 @@ for (const invalid of [
   });
 }
 
-test('missing and unreadable JSON block; missing/broken shared policy blocks only Bash', async () => {
-  const h = setup();
+test('missing and unreadable JSON block every covered tool without prompts', async t => {
+  const h = setup(t);
   for (const policyPath of [join(h.cwd, 'absent.json'), h.cwd]) {
-    const guard = createCommandGuard({sharedPath: h.sharedPath, policyPath});
-    blocked(await callGuard(guard, bash(), h.ctx));
-    blocked(await callGuard(guard, file('read', 'x'), h.ctx));
+    const guard = createCommandGuard({policyPath});
+    for (const event of [
+      bash(),
+      file('read', 'x'),
+      file('edit', 'x'),
+      file('write', 'x'),
+    ]) {
+      blocked(await callGuard(guard, event, h.ctx), /configuration/i);
+    }
   }
-  const guard = createCommandGuard({
-    sharedPath: join(h.cwd, 'absent.txt'),
-    policyPath: h.policyPath,
-  });
-  blocked(await callGuard(guard, bash(), h.ctx));
-  assert.equal(await callGuard(guard, file('read', 'x'), h.ctx), undefined);
-  writeFileSync(h.sharedPath, '[invalid regex');
-  blocked(await h.call());
-  assert.equal(await h.call(file('read', 'x')), undefined);
+  assert.equal(h.prompts.length, 0);
 });
 
-test('invalid covered tool inputs fail closed', async () => {
-  const h = setup();
+test('invalid covered tool inputs fail closed', async t => {
+  const h = setup(t);
   for (const event of [
     bash(null),
     bash(3),
@@ -336,16 +330,18 @@ test('invalid covered tool inputs fail closed', async () => {
   }
 });
 
-test('Bash glob is anchored, literal except star, and includes newlines', async () => {
-  const h = setup({deny: ['Bash(echo a.b+$HOME (test))', 'Bash(start*end)']});
+test('Bash glob is anchored, literal except star, and includes newlines', async t => {
+  const h = setup(t, {
+    deny: ['Bash(echo a.b+$HOME (test))', 'Bash(start*end)'],
+  });
   blocked(await h.call(bash('echo a.b+$HOME (test)')));
   assert.equal(await h.call(bash('prefix echo a.b+$HOME (test)')), undefined);
   assert.equal(await h.call(bash('echo axb+$HOME (test)')), undefined);
   blocked(await h.call(bash('start\nanything\nend')));
 });
 
-test('file anchors, @, file URLs, relative .., and Unicode spaces match Pi normalization', async () => {
-  const h = setup({deny: ['Read(~/protected.txt)', 'Read(./spaced name)']});
+test('file anchors, @, file URLs, relative .., and Unicode spaces match Pi normalization', async t => {
+  const h = setup(t, {deny: ['Read(~/protected.txt)', 'Read(./spaced name)']});
   writeFileSync(join(h.cwd, 'protected.txt'), 'synthetic');
   for (const path of [
     'protected.txt',
@@ -362,8 +358,8 @@ test('file anchors, @, file URLs, relative .., and Unicode spaces match Pi norma
   blocked(await h.call(file('read', 'protected.txt')));
 });
 
-test('file glob stars include dotfiles; recursive star includes zero directories', async () => {
-  const h = setup({deny: ['Read(./**/.git-credentials)', 'Read(./one/*)']});
+test('file glob stars include dotfiles; recursive star includes zero directories', async t => {
+  const h = setup(t, {deny: ['Read(./**/.git-credentials)', 'Read(./one/*)']});
   for (const path of [
     '.git-credentials',
     'nested/.git-credentials',
@@ -376,8 +372,8 @@ test('file glob stars include dotfiles; recursive star includes zero directories
   assert.equal(await h.call(file('read', 'ordinary.txt')), undefined);
 });
 
-test('symlink targets and canonical policy anchors match, including missing write parents', async () => {
-  const h = setup();
+test('symlink targets and canonical policy anchors match, including missing write parents', async t => {
+  const h = setup(t);
   const protectedDir = join(h.cwd, 'protected');
   mkdirSync(protectedDir);
   writeFileSync(join(protectedDir, 'fixture'), 'synthetic');
@@ -395,16 +391,16 @@ test('symlink targets and canonical policy anchors match, including missing writ
   blocked(await h.call(file('read', 'protected/fixture')));
 });
 
-test('dangling symlinks and loops fail closed rather than being treated as absent files', async () => {
-  const h = setup();
+test('dangling symlinks and loops fail closed rather than being treated as absent files', async t => {
+  const h = setup(t);
   symlinkSync(join(h.cwd, 'absent'), join(h.cwd, 'dangling'));
   symlinkSync(join(h.cwd, 'loop'), join(h.cwd, 'loop'));
   blocked(await h.call(file('write', 'dangling', {content: 'synthetic'})));
   blocked(await h.call(file('read', 'loop')));
 });
 
-test('read fallback variants cannot evade denies', async () => {
-  const h = setup();
+test('read fallback variants cannot evade denies', async t => {
+  const h = setup(t);
   const names = [
     'Shot 1.00\u202fPM.png',
     'Capture d’écran.png',
@@ -418,8 +414,8 @@ test('read fallback variants cannot evade denies', async () => {
 });
 
 for (const tool of ['edit', 'write']) {
-  test(`${tool} cannot change guard files even with empty denies and asks`, async () => {
-    const h = setup({ask: ['Edit', 'Write']});
+  test(`${tool} cannot change guard files even with empty denies and asks`, async t => {
+    const h = setup(t, {ask: ['Edit', 'Write']});
     symlinkSync(h.policyPath, join(h.cwd, 'policy-alias'));
     const extensionPath = resolve(
       import.meta.dirname,
@@ -431,7 +427,6 @@ for (const tool of ['edit', 'write']) {
     );
     for (const path of [
       h.policyPath,
-      h.sharedPath,
       join(h.cwd, 'policy-alias'),
       extensionPath,
       helperPath,
@@ -454,8 +449,8 @@ for (const tool of ['edit', 'write']) {
   });
 }
 
-test('Bash globs are deliberately coarse and all-Bash asks cover wrapper forms', async () => {
-  const h = setup({
+test('Bash globs are deliberately coarse and all-Bash asks cover wrapper forms', async t => {
+  const h = setup(t, {
     deny: ['Bash(*git push*main*)', 'Bash(*git push*master*)'],
     ask: ['Bash'],
   });
@@ -466,14 +461,16 @@ test('Bash globs are deliberately coarse and all-Bash asks cover wrapper forms',
   assert.equal(h.prompts.length, 2);
 });
 
-test('Read rules do not claim to restrict Bash access', async () => {
-  const h = setup({deny: ['Read(./synthetic-secret)']});
+test('Read rules do not claim to restrict Bash access', async t => {
+  const h = setup(t, {deny: ['Read(./synthetic-secret)']});
   blocked(await h.call(file('read', 'synthetic-secret')));
   assert.equal(await h.call(bash('cat synthetic-secret')), undefined);
 });
 
-test('Edit rules also cover write; Write rules stay write-only', async () => {
-  const h = setup({deny: ['Edit(./guarded.txt)', 'Write(./write-only.txt)']});
+test('Edit rules also cover write; Write rules stay write-only', async t => {
+  const h = setup(t, {
+    deny: ['Edit(./guarded.txt)', 'Write(./write-only.txt)'],
+  });
   blocked(await h.call(file('edit', 'guarded.txt')), /Edit\(/);
   blocked(
     await h.call(file('write', 'guarded.txt', {content: 'synthetic'})),
@@ -486,8 +483,8 @@ test('Edit rules also cover write; Write rules stay write-only', async () => {
   assert.equal(await h.call(file('read', 'guarded.txt')), undefined);
 });
 
-test('file rules and guard-file protection ignore letter case', async () => {
-  const h = setup({deny: ['Read(~/Secrets/**)', 'Edit(~/.shellrc)']});
+test('file rules and guard-file protection ignore letter case', async t => {
+  const h = setup(t, {deny: ['Read(~/Secrets/**)', 'Edit(~/.shellrc)']});
   mkdirSync(join(h.cwd, 'Secrets'));
   writeFileSync(join(h.cwd, 'Secrets/token'), 'synthetic');
   blocked(await h.call(file('read', 'secrets/TOKEN')));
@@ -501,8 +498,8 @@ test('file rules and guard-file protection ignore letter case', async () => {
   );
 });
 
-test('every file in the helper directory is guard-owned, including new ones', async () => {
-  const h = setup();
+test('every file in the helper directory is guard-owned, including new ones', async t => {
+  const h = setup(t);
   const helperDir = resolve(import.meta.dirname, '../extensions/command-guard');
   for (const path of [
     join(helperDir, 'match.ts'),
@@ -525,8 +522,8 @@ test('every file in the helper directory is guard-owned, including new ones', as
   );
 });
 
-test('Bash rules tolerate repeated spaces, tabs, and line continuations', async () => {
-  const h = setup({
+test('Bash rules tolerate repeated spaces, tabs, and line continuations', async t => {
+  const h = setup(t, {
     deny: ['Bash(*git push*)', 'BashRegex(^make[^\\n]*\\sdeploy$)'],
   });
   blocked(await h.call(bash('git  push origin feature')));
@@ -536,8 +533,8 @@ test('Bash rules tolerate repeated spaces, tabs, and line continuations', async 
   assert.equal(await h.call(bash('git\npush')), undefined);
 });
 
-test('Bash glob matching stays fast on very large commands', async () => {
-  const h = setup({deny: ['Bash(*alpha*beta*gamma *)']});
+test('Bash glob matching stays fast on very large commands', async t => {
+  const h = setup(t, {deny: ['Bash(*alpha*beta*gamma *)']});
   const command = "cat <<'X'\n" + 'alpha beta gamma\n'.repeat(60_000) + 'X';
   const started = performance.now();
   assert.equal(await h.call(bash(command)), undefined);
@@ -548,8 +545,8 @@ test('Bash glob matching stays fast on very large commands', async () => {
   blocked(await h.call(bash(`${command} alpha beta gamma tail`)));
 });
 
-test('BashRegex rules match at token boundaries in deny and ask', async () => {
-  const h = setup({
+test('BashRegex rules match at token boundaries in deny and ask', async t => {
+  const h = setup(t, {
     deny: [
       'BashRegex((^|[;&|\\s])git\\s+fetch\\b.*\\s(main|master)(\\s|$))',
       'BashRegex((?i:drop\\s+table))',
@@ -586,15 +583,15 @@ for (const selector of [
   'BashRegex([unclosed)',
   'BashRegex(a\0b)',
 ]) {
-  test(`invalid BashRegex fails closed without echoing it: ${JSON.stringify(selector)}`, async () => {
-    const h = setup({deny: [selector]});
+  test(`invalid BashRegex fails closed without echoing it: ${JSON.stringify(selector)}`, async t => {
+    const h = setup(t, {deny: [selector]});
     blocked(await h.call(bash()), /configuration|policy/i);
     blocked(await h.call(file('read', 'x')), /configuration|policy/i);
   });
 }
 
-// Expected verdicts for the repository policy alone (the shared file is empty
-// here). Set COMMAND_GUARD_POLICY to check a candidate before installing it.
+// Expected verdicts for the single repository policy.
+// Set COMMAND_GUARD_POLICY to check a candidate before installing it.
 const policyExamples = {
   deny: [
     ['bash', 'git push origin main'],
@@ -846,11 +843,6 @@ const policyExamples = {
 const repositoryPolicy =
   process.env.COMMAND_GUARD_POLICY ??
   resolve(import.meta.dirname, '../command-guard.json');
-const sharedFixture = resolve(
-  import.meta.dirname,
-  'fixtures/command-guard-shared.txt',
-);
-
 async function wrongVerdicts(
   h: ReturnType<typeof setup>,
   guard: ReturnType<typeof createCommandGuard>,
@@ -881,28 +873,21 @@ async function wrongVerdicts(
   return wrong;
 }
 
-test('policy examples: repository policy gives the expected verdict for each case', async () => {
-  const h = setup();
+test('policy examples: repository policy gives the expected verdict for each case', async t => {
+  const h = setup(t);
   const guard = createCommandGuard({
-    sharedPath: h.sharedPath,
     policyPath: repositoryPolicy,
     homeDir: h.cwd,
   });
   assert.deepEqual(await wrongVerdicts(h, guard, policyExamples), []);
 });
 
-test('policy examples: verdicts hold with the shared baseline fixture layered on top', async () => {
-  const h = setup();
+test('unified denies see through Git and GitHub global options and quoting', async t => {
+  const h = setup(t);
   const guard = createCommandGuard({
-    sharedPath: sharedFixture,
     policyPath: repositoryPolicy,
     homeDir: h.cwd,
   });
-  assert.deepEqual(await wrongVerdicts(h, guard, policyExamples), []);
-});
-
-test('shared baseline rules see through Git and GitHub global options and quoting', async () => {
-  const h = setup({shared: readFileSync(sharedFixture, 'utf8')});
   for (const command of [
     'gh -R o/r repo delete',
     'gh --repo o/r api -X DELETE repos/o/r',
@@ -913,16 +898,18 @@ test('shared baseline rules see through Git and GitHub global options and quotin
     'gh api -X=DELETE repos/o/r',
     'gh -R o/r api -iXDELETE repos/o/r',
   ]) {
-    blocked(await h.call(bash(command)), /shared/i);
+    blocked(await callGuard(guard, bash(command), h.ctx), /JSON deny/i);
   }
-  assert.equal(await h.call(bash('gh -R o/r pr view 3')), undefined);
+  assert.equal(
+    await callGuard(guard, bash('gh -R o/r pr view 3'), h.ctx),
+    undefined,
+  );
   assert.equal(h.prompts.length, 0);
 });
 
-test('the shared baseline owns the DELETE deny; the repository policy alone asks', async () => {
-  const h = setup();
-  const alone = createCommandGuard({
-    sharedPath: h.sharedPath,
+test('unified repository policy denies API DELETE without prompting', async t => {
+  const h = setup(t);
+  const guard = createCommandGuard({
     policyPath: repositoryPolicy,
     homeDir: h.cwd,
   });
@@ -930,18 +917,13 @@ test('the shared baseline owns the DELETE deny; the repository policy alone asks
     'gh api -X DELETE repos/o/r',
     'gh api -XDELETE repos/o/r',
   ]) {
-    const before = h.prompts.length;
-    assert.equal(
-      await callGuard(alone, bash(command), h.ctx),
-      undefined,
-      command,
-    );
-    assert.equal(h.prompts.length, before + 1, command);
+    blocked(await callGuard(guard, bash(command), h.ctx), /JSON deny/i);
   }
+  assert.equal(h.prompts.length, 0);
 });
 
-test('checkout after a directory change is judged where Git would run', async () => {
-  const h = setup();
+test('checkout after a directory change is judged where Git would run', async t => {
+  const h = setup(t);
   mkdirSync(join(h.cwd, 'repo/src'), {recursive: true});
   writeFileSync(join(h.cwd, 'repo/Makefile'), 'synthetic');
   const asks = [
@@ -966,12 +948,11 @@ test('checkout after a directory change is judged where Git would run', async ()
 });
 
 for (const mode of ['tui', 'rpc', 'print', 'json'] as const) {
-  test(`${mode}: feature pushes proceed unprompted and unsafe pushes deny unprompted`, async () => {
-    const h = setup();
+  test(`${mode}: feature pushes proceed unprompted and unsafe pushes deny unprompted`, async t => {
+    const h = setup(t);
     h.ctx.mode = mode;
     h.ctx.hasUI = mode === 'tui' || mode === 'rpc';
     const guard = createCommandGuard({
-      sharedPath: sharedFixture,
       policyPath: repositoryPolicy,
       homeDir: h.cwd,
     });
@@ -999,15 +980,15 @@ for (const mode of ['tui', 'rpc', 'print', 'json'] as const) {
     ]) {
       blocked(
         await callGuard(guard, bash(command), h.ctx),
-        /command guard|shared|deny/i,
+        /command guard|deny/i,
       );
     }
     assert.equal(h.prompts.length, 0);
   });
 }
 
-test('semantic denies need no policy rule, explain the fix, and never echo arguments', async () => {
-  const h = setup({ask: ['Bash']});
+test('semantic denies need no policy rule, explain the fix, and never echo arguments', async t => {
+  const h = setup(t, {ask: ['Bash']});
   const implicit = await h.call(bash('git push synthetic-private-remote'));
   blocked(implicit, /explicit/i);
   assert.doesNotMatch(implicit.reason, /Do not retry/);
@@ -1021,8 +1002,8 @@ test('semantic denies need no policy rule, explain the fix, and never echo argum
   assert.equal(h.prompts.length, 0);
 });
 
-test('semantic asks use the existing approval flow with a descriptive reason', async () => {
-  const h = setup();
+test('semantic asks use the existing approval flow with a descriptive reason', async t => {
+  const h = setup(t);
   assert.equal(await h.call(bash('git checkout src/index.ts')), undefined);
   assert.equal(
     await h.call(bash('kubectl delete pod example --dry-run=none')),
@@ -1033,9 +1014,9 @@ test('semantic asks use the existing approval flow with a descriptive reason', a
   assert.match(h.prompts[0][1], /git checkout src\/index\.ts/);
   assert.match(h.prompts[1][1], /Reason: .*kubectl/i);
   assert.equal(h.prompts[0][2].timeout, 120_000);
-  const declined = setup({answer: false});
+  const declined = setup(t, {answer: false});
   blocked(await declined.call(bash('git checkout src/index.ts')), /approval/i);
-  const headless = setup();
+  const headless = setup(t);
   headless.ctx.mode = 'print';
   headless.ctx.hasUI = false;
   blocked(
@@ -1045,9 +1026,9 @@ test('semantic asks use the existing approval flow with a descriptive reason', a
   assert.equal(headless.prompts.length, 0);
 });
 
-test("a safe push never bypasses another segment's deny or ask, nor bad configuration", async () => {
+test("a safe push never bypasses another segment's deny or ask, nor bad configuration", async t => {
   const safe = 'git push -u origin feat/example';
-  const h = setup({
+  const h = setup(t, {
     deny: ['Bash(*blocked-fixture*)'],
     ask: ['Bash(*ask-fixture*)'],
   });
@@ -1068,15 +1049,10 @@ test("a safe push never bypasses another segment's deny or ask, nor bad configur
   assert.equal(h.prompts.length, 2);
   h.update({invalid: true});
   blocked(await h.call(bash(safe)), /configuration/i);
-  h.update(policy());
-  writeFileSync(h.sharedPath, '[invalid regex');
-  blocked(await h.call(bash(safe)), /configuration/i);
-  const shared = setup({shared: 'blocked-fixture\n'});
-  blocked(await shared.call(bash(`${safe}; blocked-fixture`)), /shared/i);
 });
 
-test('undecodable shell nesting fails closed', async () => {
-  const h = setup();
+test('undecodable shell nesting fails closed', async t => {
+  const h = setup(t);
   blocked(await h.call(bash('echo ' + '$('.repeat(40))), /could not evaluate/i);
 });
 
@@ -1139,13 +1115,13 @@ function setTestUI(
   runner.setUIContext(ui as ExtensionUIContext | undefined, mode);
 }
 
-test("Pi's actual loader/runner intercepts before a harmless execution spy", async () => {
+test("Pi's actual loader/runner intercepts before a harmless execution spy", async t => {
   const {loadExtensionFromFactory, createExtensionRuntime} = await piModule(
     'core/extensions/loader.js',
   );
   const {ExtensionRunner} = await piModule('core/extensions/runner.js');
   const {createEventBus} = await piModule('core/event-bus.js');
-  const h = setup({deny: ['Bash(blocked-fixture)'], ask: ['Bash']});
+  const h = setup(t, {deny: ['Bash(blocked-fixture)'], ask: ['Bash']});
   const runtime = createExtensionRuntime();
   const extension = await loadExtensionFromFactory(
     (api: ExtensionAPI) => {
@@ -1190,11 +1166,11 @@ test('default extension registers interception and a startup health check', () =
   assert.equal(typeof handlers.get('session_start'), 'function');
 });
 
-test("Pi's package manager loads the repository as a package with one extension", async () => {
+test("Pi's package manager loads the repository as a package with one extension", async t => {
   const {DefaultPackageManager} = await piModule('core/package-manager.js');
   const {SettingsManager} = await piModule('core/settings-manager.js');
   const {loadExtensions} = await piModule('core/extensions/loader.js');
-  const cwd = mkdtempSync(join(root, 'package-'));
+  const cwd = fixture(t);
   const manager = new DefaultPackageManager({
     cwd,
     agentDir: join(cwd, 'agent'),
@@ -1224,12 +1200,12 @@ test("Pi's package manager loads the repository as a package with one extension"
   assert.equal(extension.handlers.get('session_start')?.length, 1);
 });
 
-test('Pi discovers a cloned repository in the user extensions directory', async () => {
+test('Pi discovers a cloned repository in the user extensions directory', async t => {
   const {discoverAndLoadExtensions} = await piModule(
     'core/extensions/loader.js',
   );
   const {ExtensionRunner} = await piModule('core/extensions/runner.js');
-  const cwd = mkdtempSync(join(root, 'runtime-clone-'));
+  const cwd = fixture(t);
   const agentDir = join(cwd, 'agent');
   const clone = join(agentDir, 'extensions/command-guard');
   mkdirSync(clone, {recursive: true});
@@ -1240,10 +1216,6 @@ test('Pi discovers a cloned repository in the user extensions directory', async 
   cpSync(
     resolve(import.meta.dirname, '../command-guard.json'),
     join(clone, 'command-guard.json'),
-  );
-  cpSync(
-    resolve(import.meta.dirname, '../dangerous-patterns.txt'),
-    join(clone, 'dangerous-patterns.txt'),
   );
   cpSync(
     resolve(import.meta.dirname, '../extensions'),
@@ -1284,7 +1256,8 @@ test('Pi discovers a cloned repository in the user extensions directory', async 
   assert.equal(await runner.emitToolCall(bash()), undefined);
 });
 
-test("Pi's file-based loader loads the actual extension entrypoint and helper", async () => {
+test("Pi's file-based loader loads the actual extension entrypoint and helper", async t => {
+  const root = fixture(t);
   const {loadExtensions} = await piModule('core/extensions/loader.js');
   const loaded = await loadExtensions(
     [resolve(import.meta.dirname, '../extensions/command-guard.ts')],
@@ -1311,11 +1284,10 @@ test('repository policy uses supported selectors without enabling new tools', ()
 });
 
 for (const tool of ['edit', 'write']) {
-  test(`${tool} protects repository and legacy extension paths`, async () => {
-    const h = setup();
+  test(`${tool} protects repository and legacy extension paths`, async t => {
+    const h = setup(t);
     for (const path of [
       resolve(import.meta.dirname, '../command-guard.json'),
-      resolve(import.meta.dirname, '../dangerous-patterns.txt'),
       resolve(import.meta.dirname, '../package.json'),
       join(homedir(), '.pi/agent/extensions/command-guard.ts'),
       join(homedir(), '.pi/agent/extensions/command-guard/policy.ts'),
@@ -1326,12 +1298,13 @@ for (const tool of ['edit', 'write']) {
 }
 
 function relocationFixture(
+  t: NodeTestContext,
   configuration: unknown = policy(
     ['Bash(blocked-fixture)'],
     ['Bash(ask-fixture)'],
   ),
 ) {
-  const cwd = mkdtempSync(join(root, 'relocation-'));
+  const cwd = fixture(t);
   const source = join(cwd, 'repository/pi');
   const extensions = join(source, 'extensions');
   const legacy = join(cwd, 'legacy/extensions');
@@ -1351,10 +1324,6 @@ function relocationFixture(
       join(source, 'command-guard.json'),
       JSON.stringify(configuration),
     );
-  writeFileSync(
-    join(source, 'dangerous-patterns.txt'),
-    'blocked-shared-fixture\n',
-  );
   symlinkSync(
     join(extensions, 'command-guard.ts'),
     join(legacy, 'command-guard.ts'),
@@ -1390,8 +1359,8 @@ async function relocatedRunner(
 }
 
 for (const viaLink of [false, true]) {
-  test(`file loader uses repository-relative policy via ${viaLink ? 'symlink' : 'real path'}`, async () => {
-    const fixture = relocationFixture();
+  test(`file loader uses repository-relative policy via ${viaLink ? 'symlink' : 'real path'}`, async t => {
+    const fixture = relocationFixture(t);
     const runner = await relocatedRunner(fixture, viaLink);
     const prompts = [];
     setTestUI(
@@ -1406,17 +1375,13 @@ for (const viaLink of [false, true]) {
     );
     assert.equal(await runner.emitToolCall(bash('allowed-fixture')), undefined);
     blocked(await runner.emitToolCall(bash('blocked-fixture')), /deny/i);
-    blocked(
-      await runner.emitToolCall(bash('blocked-shared-fixture')),
-      /shared/i,
-    );
     assert.equal(await runner.emitToolCall(bash('ask-fixture')), undefined);
     assert.equal(prompts.length, 1);
     for (const tool of ['edit', 'write']) {
       for (const path of [
         join(fixture.source, 'command-guard.json'),
         join(fixture.cwd, 'policy-alias.json'),
-        join(fixture.source, 'dangerous-patterns.txt'),
+        join(fixture.source, 'package.json'),
         join(fixture.extensions, 'command-guard.ts'),
         join(fixture.legacy, 'command-guard.ts'),
         join(fixture.extensions, 'command-guard/policy.ts'),
@@ -1432,8 +1397,9 @@ for (const viaLink of [false, true]) {
     blocked(await runner.emitToolCall(bash('allowed-fixture')), /deny/i);
   });
 
-  test(`file loader applies command analysis before an execution spy via ${viaLink ? 'symlink' : 'real path'}`, async () => {
+  test(`file loader applies command analysis before an execution spy via ${viaLink ? 'symlink' : 'real path'}`, async t => {
     const fixture = relocationFixture(
+      t,
       JSON.parse(readFileSync(repositoryPolicy, 'utf8')),
     );
     mkdirSync(join(fixture.cwd, 'repo'));
@@ -1513,8 +1479,8 @@ for (const viaLink of [false, true]) {
   });
 }
 
-test('startup clears the footer without adding a healthy status label', async () => {
-  const fixture = relocationFixture();
+test('startup clears the footer without adding a healthy status label', async t => {
+  const fixture = relocationFixture(t);
   const runner = await relocatedRunner(fixture);
   const statuses: unknown[][] = [];
   const notices: unknown[][] = [];
@@ -1531,9 +1497,16 @@ test('startup clears the footer without adding a healthy status label', async ()
   assert.deepEqual(notices, []);
 });
 
-for (const configuration of [null, {invalid: true}]) {
-  test(`bad repository policy notifies and fails closed without falling back: ${JSON.stringify(configuration)}`, async () => {
-    const fixture = relocationFixture(configuration);
+for (const configuration of [null, {invalid: true}, 'unreadable', 'syntax']) {
+  test(`bad repository policy notifies and fails closed without falling back: ${JSON.stringify(configuration)}`, async t => {
+    const fixture = relocationFixture(
+      t,
+      typeof configuration === 'string' ? null : configuration,
+    );
+    const policyPath = join(fixture.source, 'command-guard.json');
+    if (configuration === 'unreadable') mkdirSync(policyPath);
+    if (configuration === 'syntax')
+      writeFileSync(policyPath, '{synthetic-private');
     const runner = await relocatedRunner(fixture);
     const statuses: unknown[][] = [];
     const notices: unknown[][] = [];
@@ -1552,16 +1525,24 @@ for (const configuration of [null, {invalid: true}]) {
     const message = notices[0][0];
     assert.ok(typeof message === 'string');
     assert.ok(message.includes(join(fixture.source, 'command-guard.json')));
-    blocked(
-      await runner.emitToolCall(bash('allowed-fixture')),
-      /configuration/i,
-    );
+    assert.doesNotMatch(message, /synthetic-private/);
+    for (const event of [
+      bash('allowed-fixture'),
+      file('read', 'x'),
+      file('edit', 'x'),
+      file('write', 'x'),
+    ]) {
+      blocked(await runner.emitToolCall(event), /configuration/i);
+    }
+    setTestUI(runner, undefined, 'print');
+    await runner.emit({type: 'session_start', reason: 'reload'});
+    assert.equal(notices.length, 1);
   });
 }
 
-test('normalization regression fixtures agree with installed Pi read resolver', async () => {
+test('normalization regression fixtures agree with installed Pi read resolver', async t => {
   const {resolveReadPath} = await piModule('core/tools/path-utils.js');
-  const h = setup();
+  const h = setup(t);
   writeFileSync(join(h.cwd, 'Capture d’écran.png'), 'synthetic');
   const resolved = resolveReadPath("@Capture d'écran.png", h.cwd);
   accessSync(resolved);
