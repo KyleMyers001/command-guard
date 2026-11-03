@@ -129,7 +129,7 @@
       "BashRegex((^|[;&|(\\s])git(\\s+-[Cc]\\s+\\S+|\\s+--?[\\w-]+(=\\S+)?)*\\s+config\\s+(?!--get|--list|-l\\b|get\\b|list\\b))",
       "BashRegex((^|[;&|(\\s])gh\\s+pr\\s+merge\\b)",
       "BashRegex((^|[;&|(\\s])gh\\s+api\\b[^;&|\\n]*(-X|--method)[=\\s]+(?!GET\\b))",
-      "BashRegex((^|[;&|(\\s])gh\\s+api\\b[^;&|\\n]*\\s(-f|-F|--field|--raw-field|--input)\\b)",
+      "BashRegex((^|[;&|(\\s])gh\\s+api(?!(?![\\s\\S]*(?i:mutation))\\s+graphql(?:\\s+(?:(?:-[fF]|--raw-field|--field)\\s+(?:query='(?!@)[^']*'|'query=(?!@)[^']*')|(?:-[fF]|--raw-field|--field)\\s+(?:[A-Za-z_]\\w*='[\\w./:{} -]*'|[A-Za-z_]\\w*=[\\w./:{}-]*|'[A-Za-z_]\\w*=[\\w./:{} -]*')|(?:--paginate|--slurp|--silent|--cache\\s+\\d+[smh]|(?:--jq|-q)\\s+(?:'[^']*'|[\\w.\\x5b\\x5d-]+))))+\\s*(?=$|[;&|\\n)]))\\b[^;&|\\n]*\\s(-f|-F|--field|--raw-field|--input)\\b)",
       "BashRegex((^|[;&|(\\s])gh\\s+release\\s+(create|edit|upload|delete-asset)\\b)",
       "BashRegex((^|[;&|(\\s])gh\\s+(secret|variable)\\s+(set|delete)\\b)",
       "BashRegex((^|[;&|(\\s])gh\\s+repo\\s+(create|edit|rename|archive)\\b)",
