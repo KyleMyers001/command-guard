@@ -1,7 +1,8 @@
 import {basename, resolve} from 'node:path';
 import {classifyGit, withoutGitGlobals} from './git.ts';
-import {invocations, spell} from './invocations.ts';
-import {expandScripts, unwrap} from './scripts.ts';
+import {ghArgs} from './gh.ts';
+import {invocations, spell, toolInvocations} from './invocations.ts';
+import {expandScripts} from './scripts.ts';
 import {parseSegments, type Word} from './shell.ts';
 
 // Decisions made from a command's decoded arguments rather than its text.
@@ -80,62 +81,6 @@ function classifyHelm(args: Word[]): Decision[] {
   return args.some(arg => HELM_MUTATIONS.has(arg.text)) ? [HELM_MUTATES] : [];
 }
 
-// `gh` accepts its repository option anywhere, including before the command.
-function withoutGhRepo(args: Word[]): Word[] {
-  const rest: Word[] = [];
-
-  for (let i = 0; i < args.length; i++) {
-    const {text} = args[i];
-    if (text === '-R' || text === '--repo') i++;
-    else if (!/^(-R.|--repo=)/u.test(text)) rest.push(args[i]);
-  }
-
-  return rest;
-}
-
-const GH_API_VALUE_OPTIONS = new Set([
-  '--method',
-  '--field',
-  '--raw-field',
-  '--header',
-  '--jq',
-  '--template',
-  '--input',
-  '--preview',
-  '--hostname',
-  '--cache',
-]);
-
-// `gh api -XPUT -ftitle=x` respelled `-X PUT -f title=x`, the spelling text
-// rules are written for. Only whole option words change: values of other
-// options, the endpoint, and words after `--` stay as written.
-function withSeparateApiValues(args: Word[]): Word[] {
-  if (args[0]?.text !== 'api') return args;
-  const rest: Word[] = [];
-
-  for (let i = 0; i < args.length; i++) {
-    const word = args[i];
-    if (word.text === '--') return [...rest, ...args.slice(i)];
-
-    // `-i` is the only short flag without a value, so it may lead a bundle.
-    const short = /^-(i*)([XfFHqtp])=?(.*)$/u.exec(word.text);
-    if (short?.[3]) {
-      for (let j = 0; j < short[1].length; j++) {
-        rest.push({text: '-i', dynamic: false});
-      }
-      rest.push({text: `-${short[2]}`, dynamic: false});
-      rest.push({text: short[3], dynamic: word.dynamic});
-      continue;
-    }
-
-    rest.push(word);
-    const valueFollows = short !== null || GH_API_VALUE_OPTIONS.has(word.text);
-    if (valueFollows && i + 1 < args.length) rest.push(args[++i]);
-  }
-
-  return rest;
-}
-
 // Where later commands may run once this one has. The shell's control flow
 // is not followed: a literal `cd` adds its target to the directories it may
 // have been run from. Undefined means the directory cannot be known.
@@ -163,7 +108,6 @@ function workdirsAfter(
 export function analyzeCommand(command: string, cwd: string): Analysis {
   const lines: string[] = [];
   const {segments, decisions} = expandScripts(parseSegments(command));
-  const toolViews: string[] = [];
   let workdirs: string[] | undefined = [cwd];
 
   for (const segment of segments) {
@@ -194,18 +138,13 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
       args = rest;
       decisions.push(...classifyGit(args, gitDirs));
     } else if (tool === 'gh') {
-      args = withSeparateApiValues(withoutGhRepo(args));
+      args = ghArgs(args);
     } else if (tool === 'kubectl') {
       decisions.push(...classifyKubectl(args));
     } else {
       decisions.push(...classifyHelm(args));
     }
 
-    // Also the tool as a rule would name it, without Git or GitHub globals,
-    // but only where it is the command: `echo git status` runs no git.
-    const started = unwrap(segment).command[0];
-    if (started && !started.dynamic && basename(started.text) === tool)
-      toolViews.push([tool, ...args.map(spell)].join(' '));
     lines.push(
       [...segment.slice(0, at).map(spell), tool, ...args.map(spell)].join(' '),
     );
@@ -214,6 +153,8 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
   return {
     canonical: lines.join('\n'),
     decisions,
-    invocations: [...new Set([...invocations(segments), ...toolViews])],
+    invocations: [
+      ...new Set([...invocations(segments), ...toolInvocations(segments)]),
+    ],
   };
 }

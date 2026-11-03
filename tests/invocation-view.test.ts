@@ -62,11 +62,12 @@ test('shell strings contribute their own commands, and Git globals are dropped',
   assert.ok(wrapped.invocations.includes('git status'));
 });
 
-test('a very long command keeps the work bounded', () => {
+test('a very long command still has every start, held as slices', () => {
   const words = Array.from({length: 5000}, () => 'x').join(' ');
-  const found = views(`sudo ${words}`);
-  assert.ok(found.length <= 33);
+  const found = views(`sudo ${words} pnpm -r publish`);
   assert.ok(found[0].startsWith('sudo '));
+  assert.ok(found.includes('pnpm -r publish'));
+  assert.ok(found.length >= 5000);
 });
 
 test('BashCmdRegex compiles like BashRegex and is matched against views', t => {
