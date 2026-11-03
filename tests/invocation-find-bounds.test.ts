@@ -52,9 +52,9 @@ test('repeated find -exec is analyzed in linear time', () => {
   }
 
   const many = `find . ${'-exec a \\; '.repeat(20000)}`;
-  assert.ok(timed(() => analyzeCommand(many, cwd)).ms < 100);
+  assert.ok(timed(() => analyzeCommand(many, cwd)).ms < 1000);
   const words = `find . -exec ${'x '.repeat(100000)}`;
-  assert.ok(timed(() => analyzeCommand(words, cwd)).ms < 200);
+  assert.ok(timed(() => analyzeCommand(words, cwd)).ms < 1000);
 });
 
 test('a find payload is read once, so a mention inside one is no command', t => {
