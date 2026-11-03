@@ -1,5 +1,6 @@
 import {basename, resolve} from 'node:path';
 import {classifyGit, withoutGitGlobals} from './git.ts';
+import {pipesToShell} from './pipeline.ts';
 import {expandScripts} from './scripts.ts';
 import {parseSegments, type Word} from './shell.ts';
 
@@ -18,8 +19,6 @@ export interface Analysis {
   // or Git and GitHub global options, so text rules written for the plain
   // spelling (`gh pr merge`) also match `gh -R owner/repo pr merge`.
   canonical: string;
-  // The decoded text of each `sh -c` or `eval` script, at every depth.
-  scripts: string[];
   decisions: Decision[];
 }
 
@@ -46,6 +45,11 @@ const HELM_MUTATIONS = new Set([
   'rollback',
 ]);
 
+const PIPE_TO_SHELL: Decision = {
+  verdict: 'deny',
+  reason: 'a download is piped into a shell, which runs it unseen',
+  advice: 'Download the script to a file, read it, then run it.',
+};
 const KUBECTL_MUTATES: Decision = {
   verdict: 'ask',
   reason:
@@ -209,5 +213,9 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
     );
   }
 
-  return {canonical: lines.join('\n'), scripts, decisions};
+  // The segments no longer show a pipeline, so read the text of the command
+  // and of each literal shell string.
+  if ([command, ...scripts].some(pipesToShell)) decisions.push(PIPE_TO_SHELL);
+
+  return {canonical: lines.join('\n'), decisions};
 }

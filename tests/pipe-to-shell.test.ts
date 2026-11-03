@@ -53,6 +53,9 @@ test('still allows commands that only look similar', async () => {
       'git commit -m "docs: never run curl url | sh"',
       "echo 'curl url | sh'",
       'printf "%s\\n" "wget url | bash"',
+      'git commit -m "docs: avoid curl url | sh; download and inspect first"',
+      "echo 'example: (curl url | sh)'",
+      'bash -c \'echo "docs: curl url | sh; read first"\'',
     ],
     'ALLOW',
   );
