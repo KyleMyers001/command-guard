@@ -5,9 +5,11 @@ export const MIN_APPROVAL_TIMEOUT_MS = 30_000;
 export const MAX_APPROVAL_TIMEOUT_MS = 1_800_000;
 export const APPROVAL_TIMEOUT_ENV = 'COMMAND_GUARD_APPROVAL_TIMEOUT_S';
 
-// Pi reports an expired dialog and a "no" the same way (false), so expiry is
-// recognised by the wait having used up (nearly) the whole timeout.
-const EXPIRY_TOLERANCE_MS = 1_000;
+// Pi reports an expired dialog and a "no" the same way (false), so a false is
+// recognised as expiry by the wait having used up the whole timeout, give or
+// take timer jitter. A real "no" in that last quarter second is the one case
+// that cannot be told apart; it still blocks, only the wording is affected.
+const EXPIRY_TOLERANCE_MS = 250;
 
 // Positive whole seconds, clamped to 30 s - 30 min. Anything else (unset,
 // empty, zero, negative, fractional, hex, exponent, text) uses the default.
@@ -31,12 +33,17 @@ export function describeTimeout(ms: number): string {
     : unit(ms / 1000, 'second');
 }
 
-export function expiredWithoutAnswer(
+// True when the answer did not arrive within the window. A "yes" that comes
+// back after the deadline is expired too: it is never honoured. `waitedMs`
+// must come from a monotonic clock.
+export function approvalExpired(
   approved: unknown,
   waitedMs: number,
   timeoutMs: number,
 ): boolean {
-  return approved !== true && waitedMs >= timeoutMs - EXPIRY_TOLERANCE_MS;
+  return approved === true
+    ? waitedMs > timeoutMs
+    : waitedMs >= timeoutMs - EXPIRY_TOLERANCE_MS;
 }
 
 export function expiredMessage(timeoutMs: number): string {

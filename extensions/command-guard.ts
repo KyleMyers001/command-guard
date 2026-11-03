@@ -41,7 +41,7 @@ const protectedDirs = [
 interface GuardOptions {
   policyPath?: string;
   homeDir?: string;
-  // Test seams: environment (approval timeout) and clock (expiry detection).
+  // Test seams: environment (approval timeout) and monotonic clock (expiry detection).
   env?: NodeJS.ProcessEnv;
   now?: () => number;
 }
@@ -79,7 +79,7 @@ export function createCommandGuard(options: GuardOptions = {}) {
   const policyFile = options.policyPath ?? policyPath;
   const homeDir = options.homeDir ?? home;
   const env = options.env ?? process.env;
-  const now = options.now ?? Date.now;
+  const now = options.now ?? (() => performance.now());
 
   // Test policy paths are additive: injection cannot remove production protections.
   const protectedFiles = [

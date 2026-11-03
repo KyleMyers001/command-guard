@@ -7,7 +7,7 @@ import {
   approvalTimeoutMs,
   describeTimeout,
   expiredMessage,
-  expiredWithoutAnswer,
+  approvalExpired,
   EXPIRED_ADVICE,
 } from './approval.ts';
 import {visible, type GuardTool} from './policy.ts';
@@ -81,7 +81,7 @@ export async function requestApproval(
     if (
       !ctx.signal?.aborted &&
       unchanged &&
-      expiredWithoutAnswer(approved, now() - asked, timeout)
+      approvalExpired(approved, now() - asked, timeout)
     ) {
       return block(expiredMessage(timeout), EXPIRED_ADVICE);
     }

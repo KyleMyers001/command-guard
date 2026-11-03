@@ -160,14 +160,106 @@ test('an explicit denial keeps the usual do-not-retry message', async () => {
   assert.doesNotMatch(result?.reason ?? '', /expired/i);
 });
 
-test('a prompt that lapses just under the window is still treated as expiry', async () => {
-  const h = harness({}, clock => lapses(clock, DEFAULT_MS - 500));
+test('a prompt that lapses within timer jitter of the window is expiry', async () => {
+  const h = harness({}, clock => lapses(clock, DEFAULT_MS - 100));
   assert.match((await h.call())?.reason ?? '', /expired/i);
 });
 
-test('a quick "no" is not reported as expiry', async () => {
-  const h = harness({}, clock => lapses(clock, DEFAULT_MS - 5_000));
-  assert.doesNotMatch((await h.call())?.reason ?? '', /expired/i);
+test('a real "no" shortly before the deadline is not reported as expiry', async () => {
+  for (const early of [500, 1_000, 5_000]) {
+    const h = harness({}, clock => lapses(clock, DEFAULT_MS - early));
+    const result = await h.call();
+    assert.equal(result?.block, true);
+    assert.match(result?.reason ?? '', /denied/i);
+    assert.doesNotMatch(result?.reason ?? '', /expired/i);
+  }
+});
+
+// Sophie's ruling (EL-115): no late approval. A "yes" is only honoured when
+// it arrives within the window, measured on the monotonic clock.
+test('an on-time "yes" runs the command', async () => {
+  for (const ms of [0, 1_000, DEFAULT_MS - 1, DEFAULT_MS]) {
+    const h = harness({}, clock => {
+      clock.ms += ms;
+      return true;
+    });
+    assert.equal(await h.call(), undefined, `answered after ${ms} ms`);
+  }
+});
+
+test('a late "yes" blocks with the expired message', async () => {
+  for (const late of [1, 1_000, DEFAULT_MS * 10]) {
+    const h = harness({}, clock => {
+      clock.ms += DEFAULT_MS + late;
+      return true;
+    });
+    const result = await h.call();
+    assert.equal(result?.block, true, `answered ${late} ms late`);
+    assert.match(result?.reason ?? '', /expired/i);
+    assert.match(result?.reason ?? '', /nothing ran/);
+    assert.match(result?.reason ?? '', /re-request/i);
+  }
+});
+
+test('a late "yes" is judged against a configured window', async () => {
+  const env = {COMMAND_GUARD_APPROVAL_TIMEOUT_S: '60'};
+  const late = harness(env, clock => {
+    clock.ms += 61_000;
+    return true;
+  });
+  assert.equal((await late.call())?.block, true);
+  const onTime = harness(env, clock => {
+    clock.ms += 59_000;
+    return true;
+  });
+  assert.equal(await onTime.call(), undefined);
+});
+
+test('a late "no" blocks with the expired message', async () => {
+  const h = harness({}, clock => lapses(clock, DEFAULT_MS + 5_000));
+  const result = await h.call();
+  assert.equal(result?.block, true);
+  assert.match(result?.reason ?? '', /expired/i);
+});
+
+test('a late "yes" on a cancelled or rewritten invocation still blocks', async () => {
+  const cancelled = harness({}, clock => {
+    cancelled.controller.abort();
+    clock.ms += DEFAULT_MS * 2;
+    return true;
+  });
+  assert.equal((await cancelled.call())?.block, true);
+  const rewritten = harness({}, clock => {
+    rewritten.event.input = {command: 'rm -rf elsewhere'};
+    clock.ms += DEFAULT_MS * 2;
+    return true;
+  });
+  assert.equal((await rewritten.call())?.block, true);
+});
+
+test('the default clock is monotonic', async () => {
+  const realNow = Date.now;
+  let wall = 1_000_000;
+  Date.now = () => (wall += DEFAULT_MS * 10);
+  try {
+    const guard = createCommandGuard({env: {}});
+    const event = {
+      type: 'tool_call',
+      toolCallId: 'monotonic',
+      toolName: 'bash',
+      input: {command: COMMAND},
+    } as ToolCallEvent;
+    const ctx = {
+      cwd: repository,
+      hasUI: true,
+      mode: 'tui',
+      ui: {confirm: async () => true},
+    } as unknown as ExtensionContext;
+    // The wall clock leaps ahead; an on-time answer must still run.
+    assert.equal(await guard(event, ctx), undefined);
+  } finally {
+    Date.now = realNow;
+  }
 });
 
 test('cancellation at the deadline is cancellation, not expiry', async () => {
