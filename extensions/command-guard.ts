@@ -174,7 +174,7 @@ export function createCommandGuard(options: GuardOptions = {}) {
     const analysis =
       tool === 'bash' ? analyzeCommand(target, ctx.cwd) : undefined;
     const targets = analysis
-      ? [target, analysis.canonical]
+      ? [target, analysis.canonical, analysis.separated]
       : inputPaths(tool, target, ctx.cwd, homeDir);
     const call: Invocation = {tool, input, target, targets};
 

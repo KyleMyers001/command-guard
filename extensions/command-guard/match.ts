@@ -1,6 +1,5 @@
 import {join, resolve} from 'node:path';
 import {canonicalPath} from './paths.ts';
-import {neutralizeQuotedNewlines} from './quotes.ts';
 import type {GuardTool, Rule} from './policy.ts';
 
 function escapeRegex(value: string): string {
@@ -39,17 +38,15 @@ function flattened(command: string): string {
   return command.replace(/\\\r?\n/gu, ' ').replace(/[ \t]+/gu, ' ');
 }
 
-// `commands` holds the command as written and its canonical spelling. Raw
-// rules also see each with quoted newlines replaced by spaces.
+// `commands` holds the command as written, its canonical spelling and the
+// same with `;` between commands. Raw rules read the first and last; others
+// read the first two, plain and flattened.
 function bashMatches(rule: Rule, commands: string[]): boolean {
   const {regex, pattern} = rule;
   const spellings =
     rule.flatten === false
-      ? commands.flatMap(command => [
-          command,
-          neutralizeQuotedNewlines(command),
-        ])
-      : commands.flatMap(command => [command, flattened(command)]);
+      ? [commands[0], commands[2] ?? commands[1]]
+      : commands.slice(0, 2).flatMap(command => [command, flattened(command)]);
 
   if (regex) return spellings.some(text => regex.test(text));
   if (pattern === undefined) return true;

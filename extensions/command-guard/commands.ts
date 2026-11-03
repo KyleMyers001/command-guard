@@ -18,6 +18,9 @@ export interface Analysis {
   // or Git and GitHub global options, so text rules written for the plain
   // spelling (`gh pr merge`) also match `gh -R owner/repo pr merge`.
   canonical: string;
+  // The same lines, each after the first starting with `;`. Raw rules stop at
+  // `;`, so their `[^;&|]*` gap cannot run from one command into the next.
+  separated: string;
   decisions: Decision[];
 }
 
@@ -207,5 +210,9 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
     );
   }
 
-  return {canonical: lines.join('\n'), decisions};
+  return {
+    canonical: lines.join('\n'),
+    separated: lines.join('\n;'),
+    decisions,
+  };
 }
