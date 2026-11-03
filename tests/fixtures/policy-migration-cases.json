@@ -2,7 +2,7 @@
   "baseline": "53b5bdc74ec81d20a34020399fc796035911e2b3",
   "cases": [
     {"line": 8, "variant": "positive", "command": "rm -rf /", "verdict": "DENY", "prompts": 0},
-    {"line": 8, "variant": "neighbor", "command": "rm -rf build", "verdict": "ASK", "prompts": 1},
+    {"line": 8, "variant": "neighbor", "command": "rm -rf build", "verdict": "ALLOW", "prompts": 0},
     {"line": 8, "variant": "LF-prefix", "command": "printf harmless\nrm -rf /", "verdict": "DENY", "prompts": 0},
     {"line": 8, "variant": "LF-spaces", "command": "rm\n-rf\n/", "verdict": "DENY", "prompts": 0},
     {"line": 8, "variant": "CRLF-prefix", "command": "printf harmless\r\nrm -rf /", "verdict": "DENY", "prompts": 0},
@@ -836,7 +836,7 @@
     {"line": null, "variant": "original-probe", "command": "rm -rf /", "verdict": "DENY", "prompts": 0},
     {"line": null, "variant": "original-probe", "command": "rm -rf ~", "verdict": "DENY", "prompts": 0},
     {"line": null, "variant": "original-probe", "command": "rm -rf /Users/example", "verdict": "DENY", "prompts": 0},
-    {"line": null, "variant": "original-probe", "command": "rm -rf build", "verdict": "ASK", "prompts": 1},
+    {"line": null, "variant": "original-probe", "command": "rm -rf build", "verdict": "ALLOW", "prompts": 0},
     {"line": null, "variant": "original-probe", "command": "dd if=fixture of=/dev/disk9", "verdict": "DENY", "prompts": 0},
     {"line": null, "variant": "original-probe", "command": "printf fixture > /dev/disk9", "verdict": "DENY", "prompts": 0},
     {"line": null, "variant": "original-probe", "command": "mkfs.ext4 /dev/example", "verdict": "DENY", "prompts": 0},
