@@ -44,6 +44,8 @@ const OPTIONED_WRAPPERS = new Set([
 const MAX_DEPTH = 3;
 
 const SCRIPT_RUNNERS = new Set(['run', 'run-script', 'rum', 'urn']);
+// npm prints help or the version and stops at these, whatever follows.
+const INFO_FLAGS = new Set(['-h', '-?', '--help', '--version', '-v']);
 const RECURSIVE = new Set(['recursive', 'multi', 'm']);
 const FETCHERS = new Set(['exec', 'x', 'dlx']);
 function literal(word: Word | undefined): string {
@@ -102,6 +104,8 @@ function runsPublish(tool: Tool, args: Word[], depth: number): boolean {
   const valued = VALUE_OPTIONS[tool];
 
   return firstWords(args, valued).some(i => {
+    if (tool === 'npm' && args.slice(0, i).some(w => INFO_FLAGS.has(w.text)))
+      return false;
     const name =
       tool === 'npm' ? npmCommand(literal(args[i])) : literal(args[i]);
     const rest = args.slice(i + 1);
@@ -117,8 +121,9 @@ function runsPublish(tool: Tool, args: Word[], depth: number): boolean {
     // pnpm runs a dependency's program by name: `pnpm changeset publish`.
     if (tool === 'pnpm' && TOOLS.has(name))
       return publishes(name, rest, depth + 1);
+    // `pnpm recursive run publish`, `pnpm recursive exec lerna publish`.
     if (tool === 'pnpm' && RECURSIVE.has(name))
-      return startsWithPublish(rest, valued);
+      return runsPublish(tool, rest, depth);
     if (tool !== 'yarn') return false;
 
     // Yarn: `yarn npm publish`, `yarn workspace <name> <cmd>`,
