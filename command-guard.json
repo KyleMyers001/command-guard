@@ -153,7 +153,7 @@
       "BashRegex((^|[;&|(\\s])docker\\s+compose\\b[^;&|\\n]*\\sdown\\b[^;&|\\n]*\\s(-v|--volumes)\\b)",
       "BashRegex((?i:^(?=[\\s\\S]*\\b(psql|mysql|mariadb|sqlite3|sqlcmd|duckdb|clickhouse-client)\\b)(?=[\\s\\S]*\\b(truncate|delete\\s+from)\\b)))",
       "BashRegex((^|[;&|(\\s])prisma\\s+(migrate|db\\s+(push|execute))\\b)",
-      "BashRegex((^|[;&|(\\s])(npm|pnpm|yarn|bun)\\s+(run\\s+)?[\\w:-]*migrat)",
+      "BashRegex((^|[;&|(\\s])(npm|pnpm|yarn|bun)\\s+(run\\s+)?(?!(?<=(?:^|[;&|(\\n])\\s*(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?)(?:test|lint|check)[:-]migrat(?:e|ion|ions)\\s*(?=$|[;&|\\n)]))[\\w:-]*migrat)",
       "BashRegex((^|[;&|(\\s])(alembic\\s+(upgrade|downgrade)|(rails|rake)\\s+db:|knex\\s+migrate|drizzle-kit\\s+(push|migrate)|flyway\\s+(migrate|clean)|manage\\.py\\s+migrate)\\b)",
       "BashRegex((^|[;&|(\\s])sf\\s+project\\s+deploy\\s+(start|quick|resume)\\b)",
       "BashRegex((^|[;&|(\\s])sfdx\\s+force:source:deploy\\b)"
