@@ -38,9 +38,18 @@ function flattened(command: string): string {
   return command.replace(/\\\r?\n/gu, ' ').replace(/[ \t]+/gu, ' ');
 }
 
-// `commands` holds the command as written and its canonical spelling.
-function bashMatches(rule: Rule, commands: string[]): boolean {
+// `commands` holds the command as written and its canonical spelling;
+// `views` the invocation of each simple command in it.
+function bashMatches(
+  rule: Rule,
+  commands: string[],
+  views: string[] | undefined,
+): boolean {
   const {regex, pattern} = rule;
+  if (rule.view === 'invocation' && regex) {
+    // Without a view, fall back to the spellings, which only adds matches.
+    return (views ?? commands).some(text => regex.test(text));
+  }
   const spellings =
     rule.flatten === false
       ? commands
@@ -99,9 +108,10 @@ export function matches(
   targets: string[],
   cwd: string,
   home: string,
+  views?: string[],
 ): boolean {
   if (!appliesTo(rule, tool)) return false;
-  if (tool === 'bash') return bashMatches(rule, targets);
+  if (tool === 'bash') return bashMatches(rule, targets, views);
   if (rule.pattern === undefined) return true;
 
   return policyPaths(rule.pattern, cwd, home).some(pattern => {

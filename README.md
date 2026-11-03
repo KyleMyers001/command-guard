@@ -195,6 +195,14 @@ Supported selectors:
   never their flattened forms. It is not literal-raw-only matching. Use it when
   whitespace/continuation provenance matters; the migrated historical denies
   use `BashRawRegex((?m:...))` to preserve their original matching scope.
+- `BashCmdRegex(expression)` uses the same regex engine and modifiers, but is
+  matched against each simple command's _invocation_ rather than the command
+  text: assignments, `env` and `time` are removed, the program is named without
+  its directory, words are spelled without quoting, and Git and GitHub global
+  options are dropped. Commands inside literal `sh -c` and `eval` strings are
+  included, and so is the command after a prefix such as `sudo` or `timeout`.
+  A rule such as `BashCmdRegex(^pnpm -r publish)` therefore matches
+  `FOO=1 /usr/bin/pnpm -r publish` but not `echo pnpm -r publish`.
 - File selectors use `~/` for home, `//` for filesystem root, and relative paths
   for the current working directory. `*` stays within one segment; a complete
   `**` segment spans zero or more segments.

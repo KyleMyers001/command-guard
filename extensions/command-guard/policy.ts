@@ -12,6 +12,9 @@ export interface Rule {
   regex?: RegExp;
   // Raw selectors still match canonical spelling, but never flattened text.
   flatten?: false;
+  // `invocation` for BashCmdRegex: matched against each simple command's
+  // invocation, not against the command text.
+  view?: 'invocation';
 }
 
 interface Policy {
@@ -23,6 +26,7 @@ const selectorTools: Record<string, GuardTool> = {
   Bash: 'bash',
   BashRegex: 'bash',
   BashRawRegex: 'bash',
+  BashCmdRegex: 'bash',
   Read: 'read',
   Edit: 'edit',
   Write: 'write',
@@ -128,12 +132,22 @@ function parseRule(value: unknown): Rule {
       : undefined;
   if (!tool) {
     throw new PolicyError(
-      'Supported selectors: Bash, BashRegex, BashRawRegex, Read, Edit, Write',
+      'Supported selectors: Bash, BashRegex, BashRawRegex, BashCmdRegex, Read, Edit, Write',
     );
   }
 
   const pattern = match?.[2];
   if (pattern?.includes('\0')) throw new PolicyError('NUL is not supported');
+
+  if (match?.[1] === 'BashCmdRegex') {
+    return {
+      selector: value,
+      tool,
+      pattern,
+      regex: compileBashRegex(pattern),
+      view: 'invocation',
+    };
+  }
 
   if (match?.[1] === 'BashRegex' || match?.[1] === 'BashRawRegex') {
     return {

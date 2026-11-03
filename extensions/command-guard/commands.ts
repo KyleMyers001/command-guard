@@ -1,5 +1,6 @@
 import {basename, resolve} from 'node:path';
 import {classifyGit, withoutGitGlobals} from './git.ts';
+import {invocations, spell} from './invocations.ts';
 import {expandScripts} from './scripts.ts';
 import {parseSegments, type Word} from './shell.ts';
 
@@ -19,6 +20,8 @@ export interface Analysis {
   // spelling (`gh pr merge`) also match `gh -R owner/repo pr merge`.
   canonical: string;
   decisions: Decision[];
+  // One line per simple command as it would be started: see invocations.ts.
+  invocations: string[];
 }
 
 const TOOLS = new Set(['git', 'gh', 'kubectl', 'helm']);
@@ -157,14 +160,10 @@ function workdirsAfter(
   return all.length > MAX_WORKDIRS ? undefined : all;
 }
 
-function spell(word: Word): string {
-  if (/^[A-Za-z0-9_@%+=:,./~^-]+$/u.test(word.text)) return word.text;
-  return `'${word.text.replaceAll("'", "'\\''")}'`;
-}
-
 export function analyzeCommand(command: string, cwd: string): Analysis {
   const lines: string[] = [];
   const {segments, decisions} = expandScripts(parseSegments(command));
+  const toolViews: string[] = [];
   let workdirs: string[] | undefined = [cwd];
 
   for (const segment of segments) {
@@ -202,10 +201,16 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
       decisions.push(...classifyHelm(args));
     }
 
+    // Also the tool as a rule would name it, without Git or GitHub globals.
+    toolViews.push([tool, ...args.map(spell)].join(' '));
     lines.push(
       [...segment.slice(0, at).map(spell), tool, ...args.map(spell)].join(' '),
     );
   }
 
-  return {canonical: lines.join('\n'), decisions};
+  return {
+    canonical: lines.join('\n'),
+    decisions,
+    invocations: [...new Set([...invocations(segments), ...toolViews])],
+  };
 }

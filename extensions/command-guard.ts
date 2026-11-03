@@ -190,7 +190,7 @@ export function createCommandGuard(options: GuardOptions = {}) {
     // a command that analysis alone would let through.
     const policy = loadPolicy(policyFile);
     const matchesCall = (rule: Rule) =>
-      matches(rule, tool, targets, ctx.cwd, homeDir);
+      matches(rule, tool, targets, ctx.cwd, homeDir, analysis?.invocations);
     const decisions = analysis?.decisions ?? [];
 
     // 3. Command-analysis and JSON denies, which no approval can override.
