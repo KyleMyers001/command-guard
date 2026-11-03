@@ -205,10 +205,12 @@ Supported selectors:
   `FOO=1 /usr/bin/pnpm -r publish` but not `echo pnpm -r publish`. The view
   is skipped, not built, for a command of more than 1,000 words or about 8 KB
   of word text, `find -exec` nested more than 32 deep, more than 32 tool names
-  in one prefixed command, or a computed `sh -c` script inside a `find -exec`
-  payload. Without a view, a `BashCmdRegex` rule matches every such command:
-  a deny rule denies it and an ask rule asks, so a skipped view never allows.
-  Commands within the limits cost time linear in their words.
+  in one prefixed command, a computed `sh -c` script inside a `find -exec`
+  payload, or more work than a fixed budget when `find -exec` payloads overlap
+  (32,000 payload words, or 8.5 million characters of command starts). Without
+  a view, a `BashCmdRegex` rule matches every such command: a deny rule denies
+  it and an ask rule asks, so a skipped view never allows. The work for any
+  command is bounded by those limits.
 - File selectors use `~/` for home, `//` for filesystem root, and relative paths
   for the current working directory. `*` stays within one segment; a complete
   `**` segment spans zero or more segments.

@@ -8,18 +8,28 @@ import type {
 } from '@earendil-works/pi-coding-agent';
 import {createCommandGuard} from '../extensions/command-guard.ts';
 import {analyzeCommand} from '../extensions/command-guard/commands.ts';
+import {
+  Skipped,
+  chargePayload,
+  chargeStarts,
+} from '../extensions/command-guard/view-limits.ts';
 import {matches} from '../extensions/command-guard/match.ts';
 import {fixture} from './helpers/fixtures.ts';
 import {rule} from './helpers/policy-rule.ts';
 import {verdict} from './helpers/verdict.ts';
 
-// EL-115, PR 3, rounds 3 and 4: the view is built in time linear in the words
-// of a command of bounded size. Past a limit there is no view, and a
+// EL-115, PR 3, rounds 3 to 5: the work to build the view is bounded: a
+// command is read in a few passes over its words, and past a limit (size,
+// nesting, or the total work across overlapping readings) there is no view. A
 // `BashCmdRegex` rule then matches: a deny denies, an ask asks.
 
 const cwd = process.cwd();
 const repeat = (prefix: string, times: number, tail: string) =>
   `${prefix}${'find . -exec '.repeat(times)}${tail}`;
+// `find . ` then `-exec` x `levels` and a `+`, `times` over: `+` ends nothing
+// there, so each reading runs on, and the readings overlap.
+const chain = (levels: number, times: number, prefix = '') =>
+  `${prefix}find . ${`${'-exec '.repeat(levels)}+ `.repeat(times)}`;
 const words = (prefix: string, word: string, times: number) =>
   `${prefix}${`${word} `.repeat(times)}`;
 
@@ -105,6 +115,16 @@ test('large and repetitive commands are analyzed in a few ms', () => {
     'sudo gh x990': words('sudo ', 'gh', 990),
     '20k -exec payloads': `find . ${'-exec a \\; '.repeat(20000)}`,
     '100k-word payload': words('find . -exec ', 'x', 100000),
+    // CR round 5: these took seconds, gigabytes, or all the memory.
+    'codex repro: 18 nested -exec, 12 +': `${'find . -exec '.repeat(18)}echo ${'+ '.repeat(12)}`,
+    '-exec -exec + x330': chain(2, 330),
+    '-exec x3 + x200': chain(3, 200),
+    '-exec x4 + x100': chain(4, 100),
+    '-exec x18 + x50': chain(18, 50),
+    '-exec x3 + x3': chain(3, 3),
+    '-exec x4 + x4': chain(4, 4),
+    'sudo -exec x3 + x200': chain(3, 200, 'sudo '),
+    'sudo -exec x4 + x100': chain(4, 100, 'sudo '),
   };
   for (const [name, command] of Object.entries(inputs)) {
     let took = 0;
@@ -169,6 +189,47 @@ test('no view: a deny rule denies and an ask rule asks, whatever the command', a
   }
 });
 
+test('an overlapping chain of -exec and + is read within the work limits', async t => {
+  // Whatever the chain does (a view, or none), a deny and an ask rule on the
+  // publish that follows it both hold.
+  for (const command of [
+    `${chain(2, 300)}\\; -exec pnpm -r publish \\;`,
+    `${chain(3, 200)}\\; -exec pnpm -r publish \\;`,
+    `${chain(4, 100)}\\; -exec pnpm -r publish \\;`,
+    `${chain(18, 50)}\\; -exec pnpm -r publish \\;`,
+    `${'find . -exec '.repeat(18)}echo ${'+ '.repeat(12)}; pnpm -r publish`,
+    `${chain(3, 100, 'sudo ')}\\; -exec pnpm -r publish \\;`,
+  ]) {
+    for (const kind of ['deny', 'ask'] as const) {
+      assert.notEqual(await decide(t, kind, command), 'ALLOW', command);
+    }
+  }
+  // The same chains without a publish are no accident.
+  assert.equal(await decide(t, 'deny', chain(3, 100)), 'ALLOW');
+});
+
+test('a command that needs more work than the limits has no view and fails closed', () => {
+  const sized = (words: number, chars: number) => ({
+    runs: [],
+    words,
+    chars,
+  });
+  const word = (text: string) => ({text, dynamic: false}) as never;
+  assert.throws(() => chargePayload([word('x')], sized(32000, 0)), Skipped);
+  assert.doesNotThrow(() => chargePayload([word('x')], sized(0, 0)));
+  assert.throws(
+    () => chargeStarts([word('x'.repeat(5000))], sized(0, 8_500_000)),
+    Skipped,
+  );
+  // A command at the size limit still has its view, however long its words.
+  for (const command of [
+    `sudo ${'x '.repeat(989)}${'a'.repeat(6000)}`,
+    words('sudo ', 'abcdefg', 990),
+  ]) {
+    assert.ok(analyzeCommand(command, cwd).invocations, command.slice(0, 20));
+  }
+});
+
 test('padding a command with find -exec payloads does not hide a publish', async t => {
   for (const count of [100, 256, 257, 258, 300, 400, 1000]) {
     const command = `FOO=1 pnpm -r publish; find . ${'-exec a \\; '.repeat(count)}`;
@@ -218,6 +279,26 @@ test('an -exec that is a predicate operand does not hide the real one', t => {
     assert.equal(cmd(command), true, command);
   }
   assert.equal(cmd('find . -name -exec -o -exec pnpm -r build \\;'), false);
+});
+
+test('-fprintf and -D take operands, so the -exec after them is the real one', t => {
+  const cmd = matcher(t, 'BashCmdRegex(^pnpm -r publish)');
+  for (const command of [
+    // -fprintf takes a file and a format: the first -exec is only a file.
+    'find . -fprintf -exec fmt -exec pnpm -r publish \\;',
+    'find . -fprint -exec -exec pnpm -r publish \\;',
+    'find . -printf -exec -exec pnpm -r publish \\;',
+    // -D takes the debug options.
+    'find -D -exec . -exec pnpm -r publish \\;',
+    'find -D tree . -exec pnpm -r publish \\;',
+    'sudo find -D -exec . -exec pnpm -r publish \\;',
+    // -O has its level attached; it takes no operand.
+    'find -O3 . -exec pnpm -r publish \\;',
+  ]) {
+    assert.equal(cmd(command), true, command);
+  }
+  assert.equal(cmd('find . -fprintf -exec fmt -exec pnpm -r build \\;'), false);
+  assert.equal(cmd('find -D -exec . -exec pnpm -r build \\;'), false);
 });
 
 test('`+` ends a payload only after {}', t => {

@@ -5,6 +5,16 @@ import {execPayloads} from './find-exec.ts';
 import {isPrefix} from './prefixes.ts';
 import {expandScripts, unwrap} from './scripts.ts';
 import type {Word} from './shell.ts';
+import {
+  MAX_DEPTH,
+  MAX_TOOL_STARTS,
+  Skipped,
+  chargePayload,
+  chargeStarts,
+  tooLarge,
+  type Reading,
+  type Run,
+} from './view-limits.ts';
 
 // The invocation view: one line per simple command, as the program would be
 // started. Shell keywords, assignments, `env` and `time` are removed, the
@@ -53,45 +63,30 @@ function line(words: Word[]): string {
   return [name, ...args.map(spell)].join(' ');
 }
 
-// A command that may run: `open` when any later word could be where the real
-// command starts (after `sudo`, or an `env` option that is not understood).
-interface Run {
-  command: Word[];
-  open: boolean;
-}
-
-// The view is built only for a command this size or smaller, and nested no
-// deeper than this; past a limit there is no view (see `invocationViews`).
-const MAX_WORDS = 1000;
-const MAX_CHARS = 8192;
-const MAX_DEPTH = 32;
-// Tool names in one open command that are each read as a start of their own.
-const MAX_TOOL_STARTS = 32;
-
-class Skipped extends Error {}
-
 // What `find -exec` runs is a command too, and so is a literal `sh -c` script
 // among it. Only the commands are read: a script that cannot be read is not
 // followed, but then there is no view.
-function collectPayload(payload: Word[], runs: Run[], depth: number): void {
+function collectPayload(payload: Word[], read: Reading, depth: number): void {
+  chargePayload(payload, read);
   const {segments, decisions} = expandScripts([payload]);
   if (decisions.length > 0) throw new Skipped();
-  for (const segment of segments) collect(segment, runs, depth);
+  for (const segment of segments) collect(segment, read, depth);
 
   // A payload that opens with an option is no command: it began at a word that
   // was only an operand, so an action may follow inside it.
   if (!payload[0]?.text.startsWith('-')) return;
   if (depth >= MAX_DEPTH) throw new Skipped();
   for (const inner of execPayloads(payload))
-    collectPayload(inner, runs, depth + 1);
+    collectPayload(inner, read, depth + 1);
 }
 
-function collect(words: Word[], runs: Run[], depth: number): void {
+function collect(words: Word[], read: Reading, depth: number): void {
   const {command, resolved} = unwrap(withoutKeywords(words));
   if (command.length === 0) return;
 
   const open = !resolved || (isPrefix(command[0]) && command.length > 1);
-  runs.push({command, open});
+  read.runs.push({command, open});
+  if (open) chargeStarts(command, read);
 
   // One scan from the first `find` reads every payload after it.
   const at = command.findIndex((word, i) => (open || i === 0) && isFind(word));
@@ -99,22 +94,11 @@ function collect(words: Word[], runs: Run[], depth: number): void {
   if (depth >= MAX_DEPTH) throw new Skipped();
 
   for (const payload of execPayloads(command.slice(at + 1)))
-    collectPayload(payload, runs, depth + 1);
+    collectPayload(payload, read, depth + 1);
 }
 
 function isFind(word: Word): boolean {
   return nameOf(word) === 'find';
-}
-
-function tooLarge(segments: Word[][]): boolean {
-  let words = 0;
-  let chars = 0;
-  for (const segment of segments) {
-    words += segment.length;
-    for (const word of segment) chars += word.text.length;
-    if (words > MAX_WORDS || chars > MAX_CHARS) return true;
-  }
-  return false;
 }
 
 // Undefined when there is no view: the command is large, or nests more than
@@ -122,14 +106,14 @@ function tooLarge(segments: Word[][]): boolean {
 function runsOf(segments: Word[][]): Run[] | undefined {
   if (tooLarge(segments)) return undefined;
 
-  const runs: Run[] = [];
+  const read: Reading = {runs: [], words: 0, chars: 0};
   try {
-    for (const segment of segments) collect(segment, runs, 0);
+    for (const segment of segments) collect(segment, read, 0);
   } catch (error) {
     if (error instanceof Skipped) return undefined;
     throw error;
   }
-  return runs;
+  return read.runs;
 }
 
 // Every start of an open command: `line(command.slice(i))` for each `i`, as
