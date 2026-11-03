@@ -51,6 +51,17 @@ test('merge hook bypass and pushes after a merge keep main verdicts', async t =>
       'git --work-tree=/ merge feat/x',
       'git --exec-path=/elsewhere merge feat/x',
       'git -C repo -c core.editor=sh merge feat/x',
+      // Quoted option values, expansions and env prefixes can hide code or
+      // flags, so they keep asking.
+      "git -c core.editor='touch /tmp/marker' merge --edit feat/x",
+      'git -c core.editor="touch /tmp/marker" merge feat/x',
+      'MERGE_FLAGS=--no-verify; git merge $MERGE_FLAGS feat/x',
+      'git merge $MERGE_FLAGS feat/x',
+      'git merge `echo --no-verify` feat/x',
+      "git merge -m 'a;b' $MERGE_FLAGS feat/x",
+      "GIT_EDITOR='touch /tmp/marker' git merge --edit feat/x",
+      'env GIT_EDITOR=sh git merge --edit feat/x',
+      'git -C "$DIR" merge feat/x',
       'git commit --amend --no-edit',
       'git rebase main',
       'git branch -D old',
