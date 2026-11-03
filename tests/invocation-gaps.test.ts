@@ -5,6 +5,7 @@ import {invocations} from '../extensions/command-guard/invocations.ts';
 import {matches} from '../extensions/command-guard/match.ts';
 import {parseSegments} from '../extensions/command-guard/shell.ts';
 import {rule} from './helpers/policy-rule.ts';
+import {verdict} from './helpers/verdict.ts';
 
 // CR's three latent gaps in the invocation view (EL-115, PR 3, round 2). For
 // each, a `^`-anchored BashCmdRegex rule must match exactly where the
@@ -179,4 +180,32 @@ test('gap 3: starts past the cap are spelled like the ones before it', () => {
     const [expected] = invocations(parseSegments(words.slice(i).join(' ')));
     assert.ok(found.includes(expected), `${i}: ${expected}`);
   }
+});
+
+test('scripts run after a prefix are read, a computed one is not', async () => {
+  for (const command of [
+    "sudo bash -c 'git push --force origin x'",
+    "command bash -c 'git push --force origin x'",
+    "sudo -u bash bash -c 'git push --force origin x'",
+    "nohup sh -c 'git push --force origin x' &",
+    "timeout 5 eval 'git push --force origin x'",
+    "env sudo bash -lc 'git push --force origin x'",
+  ]) {
+    const {decisions, invocations: views} = analyzeCommand(command, cwd);
+    assert.ok(
+      decisions.some(d => d.verdict === 'deny'),
+      command,
+    );
+    assert.ok(views.includes('git push --force origin x'), command);
+  }
+
+  // As on main: nothing new is decided about a script the guard cannot read.
+  for (const command of [
+    'sudo bash -c "$SCRIPT"',
+    'xargs -I{} sh -c "$CMD {}"',
+    'sudo echo eval $HOME',
+  ]) {
+    assert.deepEqual(analyzeCommand(command, cwd).decisions, [], command);
+  }
+  assert.equal(await verdict('nice ls -l'), 'ALLOW');
 });

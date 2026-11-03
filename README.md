@@ -199,8 +199,12 @@ Supported selectors:
   matched against each simple command's _invocation_ rather than the command
   text: assignments, `env` and `time` are removed, the program is named without
   its directory, words are spelled without quoting, and Git and GitHub global
-  options are dropped. Commands inside literal `sh -c` and `eval` strings are
-  included, and so is the command after a prefix such as `sudo` or `timeout`.
+  options are dropped, also after a prefix. Shell keywords (`if`, `then`,
+  `while`, `do`, `{`, `!`...) are not part of the command, and `find -exec`
+  payloads count as commands. Commands inside literal `sh -c` and `eval`
+  strings are included, also after a prefix such as `sudo` or `command`, and
+  so is the command after a prefix such as `sudo` or `timeout`: every later
+  word is tried as its start, however long the command is.
   A rule such as `BashCmdRegex(^pnpm -r publish)` therefore matches
   `FOO=1 /usr/bin/pnpm -r publish` but not `echo pnpm -r publish`.
 - File selectors use `~/` for home, `//` for filesystem root, and relative paths
