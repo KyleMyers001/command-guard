@@ -17,8 +17,11 @@ import {
   type GuardTool,
   type Rule,
 } from './command-guard/policy.ts';
-
-const APPROVAL_TIMEOUT_MS = 120_000;
+import {
+  block,
+  requestApproval,
+  type Invocation,
+} from './command-guard/request.ts';
 
 const home = homedir();
 
@@ -38,29 +41,15 @@ const protectedDirs = [
 interface GuardOptions {
   policyPath?: string;
   homeDir?: string;
-}
-
-interface Invocation {
-  tool: GuardTool;
-  input: Record<string, unknown>;
-  // The Bash command, or the file tool's path argument.
-  target: string;
-  // What rules are matched against: the command as written and its canonical
-  // spelling, or every path spelling.
-  targets: string[];
+  // Test seams: environment (approval timeout) and clock (expiry detection).
+  env?: NodeJS.ProcessEnv;
+  now?: () => number;
 }
 
 function supported(tool: string): tool is GuardTool {
   return (
     tool === 'bash' || tool === 'read' || tool === 'edit' || tool === 'write'
   );
-}
-
-function block(
-  reason: string,
-  advice = 'Do not retry or work around this guard.',
-): ToolCallEventResult {
-  return {block: true, reason: `${reason} ${advice}`};
 }
 
 // The default macOS volume ignores case and treats NFC and NFD alike, so a
@@ -86,61 +75,11 @@ function isGuardOwned(targets: string[], protectedFiles: string[]): boolean {
     );
 }
 
-// `cause` names what asked: a policy selector or a command-analysis reason.
-function approvalMessage(cause: string, call: Invocation, cwd: string): string {
-  const isBash = call.tool === 'bash';
-  const action = isBash ? call.target : JSON.stringify(call.input, null, 2);
-
-  const lines = [
-    cause,
-    `Working directory: ${cwd}`,
-    ...(isBash ? [] : [`Resolved paths: ${call.targets.join(', ')}`]),
-    '',
-    action,
-    '',
-    'Approve this invocation once? No answer within 120 seconds denies it.',
-  ];
-
-  return visible(lines.join('\n'));
-}
-
-// Returns a block result unless the user approves this exact invocation.
-async function requestApproval(
-  cause: string,
-  call: Invocation,
-  event: ToolCallEvent,
-  ctx: ExtensionContext,
-): Promise<ToolCallEventResult | undefined> {
-  if (!ctx.hasUI || ctx.mode === 'json' || ctx.mode === 'print') {
-    return block('Approval required, but no approval UI is available.');
-  }
-
-  // Another extension could rewrite the input while the dialog is open.
-  const snapshot = JSON.stringify(call.input);
-
-  try {
-    const approved = await ctx.ui.confirm(
-      'Command guard — approval required',
-      approvalMessage(cause, call, ctx.cwd),
-      {signal: ctx.signal, timeout: APPROVAL_TIMEOUT_MS},
-    );
-
-    const unchanged = snapshot === JSON.stringify(event.input);
-    if (approved !== true || ctx.signal?.aborted || !unchanged) {
-      return block(
-        'Approval denied, cancelled, expired, or invocation changed.',
-      );
-    }
-  } catch {
-    return block('Approval could not be obtained.');
-  }
-
-  return undefined;
-}
-
 export function createCommandGuard(options: GuardOptions = {}) {
   const policyFile = options.policyPath ?? policyPath;
   const homeDir = options.homeDir ?? home;
+  const env = options.env ?? process.env;
+  const now = options.now ?? Date.now;
 
   // Test policy paths are additive: injection cannot remove production protections.
   const protectedFiles = [
@@ -210,13 +149,27 @@ export function createCommandGuard(options: GuardOptions = {}) {
     // 4. Command-analysis and JSON asks. 5. Otherwise the call proceeds.
     const questioned = decisions.find(decision => decision.verdict === 'ask');
     if (questioned) {
-      return requestApproval(`Reason: ${questioned.reason}`, call, event, ctx);
+      return requestApproval(
+        `Reason: ${questioned.reason}`,
+        call,
+        event,
+        ctx,
+        env,
+        now,
+      );
     }
 
     const asked = policy.ask.find(matchesCall);
     if (!asked) return undefined;
 
-    return requestApproval(`Rule: ${asked.selector}`, call, event, ctx);
+    return requestApproval(
+      `Rule: ${asked.selector}`,
+      call,
+      event,
+      ctx,
+      env,
+      now,
+    );
   }
 
   return async (
