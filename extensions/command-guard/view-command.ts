@@ -47,15 +47,29 @@ export interface CommandStart {
   // The command, as `unwrap` leaves it.
   command: Word[];
   resolved: boolean;
-  // The words from where keywords and named descriptors are gone.
+  // The words from where the last keywords and descriptors are gone.
   bare: Word[];
   // True if any were: the guard's own script expansion did not see the command.
   stripped: boolean;
 }
 
+// Keywords and wrappers alternate: `time ! X` and `FOO=1 time ! X` run `X`, as
+// do `! time X` and `time time ! X`. Each round removes at least one word.
 export function commandOf(words: Word[]): CommandStart {
-  const kept = words.filter(word => !NAMED_FD.test(word.text));
-  const bare = withoutKeywords(kept);
-  const {command, resolved} = unwrap(bare);
-  return {command, resolved, bare, stripped: bare.length < words.length};
+  let rest = words.filter(word => !NAMED_FD.test(word.text));
+  let stripped = rest.length < words.length;
+  let resolved = true;
+
+  for (;;) {
+    const bare = withoutKeywords(rest);
+    stripped ||= bare.length < rest.length;
+
+    const unwrapped = unwrap(bare);
+    resolved &&= unwrapped.resolved;
+
+    const {command} = unwrapped;
+    if (withoutKeywords(command).length === command.length)
+      return {command, resolved, bare, stripped};
+    rest = command;
+  }
 }
