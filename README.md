@@ -208,6 +208,13 @@ and their flattened forms (backslash-LF/CRLF becomes a space, then runs of space
 and tabs collapse). `BashRawRegex` checks the raw text, the canonical text and
 each canonical line without those flattened forms; canonical command analysis is unchanged and can
 itself normalize quoting and arguments.
+
+Command analysis fails closed. When a command contains a construct the shell
+scanner cannot be sure of (a process substitution `<(...)` / `>(...)`, an
+unusual redirect operator, `case` inside a substitution, or an unbalanced quote
+or parenthesis), the rules and classifiers also run on the guard's original
+splitting of the same text, and the stricter verdict wins. Such a command is
+never allowed when the original reading would have blocked it.
 Selectors remain strings, not rule objects; there is no JSON `flatten` field or
 generic flags API.
 

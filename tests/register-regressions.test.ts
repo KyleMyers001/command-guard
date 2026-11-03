@@ -1,57 +1,11 @@
 import assert from 'node:assert/strict';
-import {resolve} from 'node:path';
 import test from 'node:test';
-import type {
-  ExtensionContext,
-  ToolCallEvent,
-} from '@earendil-works/pi-coding-agent';
-import {createCommandGuard} from '../extensions/command-guard.ts';
 import {analyzeCommand} from '../extensions/command-guard/commands.ts';
 import {parseSegments} from '../extensions/command-guard/shell.ts';
+import {expectAll, repository, verdict} from './helpers/verdict.ts';
 
 // Regression cases from the 2026-11-02 false-positive register (EL-115).
 // "Must keep blocking" cases guard against any loosening of the accident rules.
-const repository = resolve(import.meta.dirname, '..');
-// Always the shipped policy, whatever COMMAND_GUARD_POLICY says.
-const guard = createCommandGuard({
-  policyPath: resolve(repository, 'command-guard.json'),
-});
-
-type Verdict = 'ALLOW' | 'ASK' | 'DENY';
-
-// Prompts are answered "no", so an ASK still blocks and is distinguishable
-// from a deny rule by the prompt count. Nothing here ever executes a command.
-async function verdict(command: string): Promise<Verdict> {
-  let prompts = 0;
-  const result = await guard(
-    {
-      type: 'tool_call',
-      toolCallId: 'register-regression',
-      toolName: 'bash',
-      input: {command},
-    } as ToolCallEvent,
-    {
-      cwd: repository,
-      hasUI: true,
-      mode: 'tui',
-      signal: new AbortController().signal,
-      ui: {
-        confirm: async () => {
-          prompts++;
-          return false;
-        },
-      },
-    } as unknown as ExtensionContext,
-  );
-  return result?.block ? (prompts ? 'ASK' : 'DENY') : 'ALLOW';
-}
-
-async function expectAll(commands: string[], expected: Verdict) {
-  for (const command of commands) {
-    assert.equal(await verdict(command), expected, JSON.stringify(command));
-  }
-}
-
 // CG-FP-001, verbatim from the register: `-f` belongs to `[ -f file ]`, not push.
 const FP_001 =
   'git push -u origin experiment/shortcut-startup-timing && gh pr create --base main --head experiment/shortcut-startup-timing --draft --title \'Experiment: instrument shortcut startup baseline before 160 ms trial\' --body-file "$BB_THREAD_STORAGE/pr-body.md"; printf \'\\nPackager progress\\n\'; tail -16 "$BB_THREAD_STORAGE/baseline-build.log"; if [ -f "$BB_THREAD_STORAGE/baseline-build.exit" ]; then printf \'Build exit: \'; head -1 "$BB_THREAD_STORAGE/baseline-build.exit"; fi';

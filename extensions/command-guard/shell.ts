@@ -1,3 +1,5 @@
+import {scanDoubleQuoted, skipHeredocs, type Heredoc} from './shell-text.ts';
+
 // Bounded decoding of literal shell words. This is not a shell interpreter:
 // it recognizes quoting, escapes, command separators, redirections,
 // substitutions and here-documents well enough to tell what a command's
@@ -11,18 +13,29 @@ export interface Word {
   dynamic: boolean;
 }
 
-interface Heredoc {
-  delimiter: string;
-  stripTabs: boolean;
+// How the scanner reads a command. `legacy` switches off everything added
+// since the guard's first splitter (process substitution), so the same text can
+// be read both ways. `uncertain` is set when the text holds a construct the
+// scanner cannot be sure about; callers then also use the legacy reading.
+export interface ShellMode {
+  legacy: boolean;
+  uncertain: boolean;
 }
+
+// Operators the scanner knows. Anything else made of `<`, `>`, `&` and `|` is
+// unusual enough to read both ways.
+const KNOWN_OPERATORS = new Set('< > >> >| >& &> &>> << <<< <> <&'.split(' '));
 
 // Nesting this deep is never legitimate; the guard fails closed on the error.
 const MAX_DEPTH = 8;
 
 // Every simple command in the text, including those inside substitutions.
-export function parseSegments(command: string): Word[][] {
+export function parseSegments(
+  command: string,
+  mode: ShellMode = {legacy: false, uncertain: false},
+): Word[][] {
   const segments: Word[][] = [];
-  scanCommands(command, 0, undefined, segments, 0);
+  scanCommands(command, 0, undefined, segments, 0, mode);
   return segments;
 }
 
@@ -34,6 +47,7 @@ function scanCommands(
   closer: ')' | '`' | undefined,
   out: Word[][],
   depth: number,
+  mode: ShellMode,
 ): number {
   if (depth > MAX_DEPTH) throw new Error('Shell nesting too deep');
 
@@ -49,6 +63,17 @@ function scanCommands(
 
   function endWord(): void {
     if (!word) return;
+
+    // A case pattern ends with `)`, which the scanner would take for the end
+    // of the substitution it sits in.
+    if (
+      word.text === 'case' &&
+      !word.dynamic &&
+      segment.length === 0 &&
+      (depth > 0 || openParens > 0)
+    ) {
+      mode.uncertain = true;
+    }
 
     if (redirect === 'heredoc')
       heredocs.push({delimiter: word.text, stripTabs});
@@ -67,7 +92,7 @@ function scanCommands(
 
   function substitution(from: number, end: ')' | '`'): number {
     current().dynamic = true;
-    return scanCommands(text, from, end, out, depth + 1);
+    return scanCommands(text, from, end, out, depth + 1, mode);
   }
 
   let i = start;
@@ -86,10 +111,19 @@ function scanCommands(
     } else if (char === "'") {
       const close = text.indexOf("'", i + 1);
       current().text += text.slice(i + 1, close < 0 ? text.length : close);
-      if (close < 0) current().dynamic = true;
+      if (close < 0) {
+        current().dynamic = true;
+        mode.uncertain = true;
+      }
       i = close < 0 ? text.length : close + 1;
     } else if (char === '"') {
-      i = scanDoubleQuoted(text, i + 1, current(), out, depth);
+      i = scanDoubleQuoted(
+        text,
+        i + 1,
+        current(),
+        (from, end) => scanCommands(text, from, end, out, depth + 1, mode),
+        mode,
+      );
     } else if (char === '$' && next === '(') {
       i = substitution(i + 2, ')');
     } else if (char === '`') {
@@ -105,6 +139,7 @@ function scanCommands(
     } else if (char === ')') {
       endSegment();
       if (closer === ')' && openParens === 0) return i + 1;
+      if (openParens === 0) mode.uncertain = true;
       openParens = Math.max(0, openParens - 1);
       i++;
     } else if (char === '<' || char === '>' || (char === '&' && next === '>')) {
@@ -115,14 +150,20 @@ function scanCommands(
       let operator = '';
       while (i < text.length && '<>&|'.includes(text[i])) operator += text[i++];
 
-      // `>(...)` and `<(...)` hand the outer command a pipe. The body is a
-      // segment of its own; the pipe is a file name the outer command's own
-      // arguments never depend on, so it is left out and the outer command
-      // carries on after it as if it were not there.
-      if ((operator === '<' || operator === '>') && text[i] === '(') {
-        i = scanCommands(text, i + 1, ')', out, depth + 1);
-        redirect = 'none';
-        continue;
+      if (!mode.legacy) {
+        if (!KNOWN_OPERATORS.has(operator)) mode.uncertain = true;
+
+        // `>(...)` and `<(...)` hand the outer command a pipe, after whatever
+        // redirect operator comes before it (`2>>(...)`, `>&>(...)`). The body
+        // is a segment of its own; the pipe is a file name the outer command's
+        // arguments never depend on, so it is left out and the outer command
+        // carries on after it as if it were not there.
+        if (/[<>]$/u.test(operator) && text[i] === '(') {
+          mode.uncertain = true;
+          i = scanCommands(text, i + 1, ')', out, depth + 1, mode);
+          redirect = 'none';
+          continue;
+        }
       }
 
       const isHeredoc = operator === '<<';
@@ -150,66 +191,7 @@ function scanCommands(
   }
 
   endSegment();
+  // The text ended inside a substitution.
+  if (closer) mode.uncertain = true;
   return text.length;
-}
-
-// Appends a double-quoted string's contents to `word`. Returns the index
-// after the closing quote.
-function scanDoubleQuoted(
-  text: string,
-  start: number,
-  word: Word,
-  out: Word[][],
-  depth: number,
-): number {
-  let i = start;
-  while (i < text.length) {
-    const char = text[i];
-    const next = text[i + 1];
-
-    if (char === '"') return i + 1;
-
-    if (char === '\\' && next === '\n') {
-      i += 2;
-    } else if (char === '\\' && next !== undefined && '$`"\\'.includes(next)) {
-      word.text += next;
-      i += 2;
-    } else if (char === '$' && next === '(') {
-      word.dynamic = true;
-      i = scanCommands(text, i + 2, ')', out, depth + 1);
-    } else if (char === '`') {
-      word.dynamic = true;
-      i = scanCommands(text, i + 1, '`', out, depth + 1);
-    } else {
-      if (char === '$') word.dynamic = true;
-      word.text += char;
-      i++;
-    }
-  }
-
-  // Unterminated: the shell would keep reading, so the word is not known.
-  word.dynamic = true;
-  return text.length;
-}
-
-// Here-document bodies are data. Returns the index after the last body.
-function skipHeredocs(
-  text: string,
-  start: number,
-  heredocs: Heredoc[],
-): number {
-  let i = start;
-
-  for (const {delimiter, stripTabs} of heredocs) {
-    while (i < text.length) {
-      const newline = text.indexOf('\n', i);
-      const end = newline < 0 ? text.length : newline;
-      const line = text.slice(i, end).replace(/\r$/u, '');
-      i = newline < 0 ? text.length : newline + 1;
-
-      if ((stripTabs ? line.replace(/^\t+/u, '') : line) === delimiter) break;
-    }
-  }
-
-  return i;
 }
