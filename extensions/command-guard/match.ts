@@ -46,16 +46,16 @@ function bashMatches(
   views: string[] | undefined,
 ): boolean {
   const {regex, pattern} = rule;
+  if (rule.view === 'invocation' && regex) {
+    // No view (the command is too large or nested, or runs a script that
+    // cannot be read): the rule is taken to match, so a deny denies and an ask
+    // asks. Never a silent allow.
+    return views === undefined || views.some(text => regex.test(text));
+  }
   const spellings =
     rule.flatten === false
       ? commands
       : commands.flatMap(command => [command, flattened(command)]);
-
-  if (rule.view === 'invocation' && regex) {
-    // Without a view, match the spellings as a text rule does, which only adds
-    // matches.
-    return (views ?? spellings).some(text => regex.test(text));
-  }
 
   if (regex) return spellings.some(text => regex.test(text));
   if (pattern === undefined) return true;

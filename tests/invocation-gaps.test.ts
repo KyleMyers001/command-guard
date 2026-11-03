@@ -152,7 +152,7 @@ test('gap 3: no start is skipped past the cap', t => {
     `sudo env ${assignments} /usr/bin/pnpm -r publish`,
     `timeout ${options} 5 pnpm -r publish`,
     `xargs ${options} pnpm -r publish`,
-    `sudo ${'x '.repeat(5000)}pnpm -r publish`,
+    `sudo ${'x '.repeat(900)}pnpm -r publish`,
   ]);
   expectBoth(t, 'gh pr merge', [
     `sudo env ${assignments} gh -R x pr merge`,

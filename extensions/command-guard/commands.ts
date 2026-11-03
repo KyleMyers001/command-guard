@@ -22,8 +22,8 @@ export interface Analysis {
   canonical: string;
   decisions: Decision[];
   // One line per simple command as it would be started: see invocations.ts.
-  // Undefined when the command nests more `find -exec` than the view follows;
-  // rules then match its spelling alone, as they did without the view.
+  // Undefined when there is no view (a large or deeply nested command, or a
+  // script that cannot be read). A `BashCmdRegex` rule then matches.
   invocations?: string[];
 }
 

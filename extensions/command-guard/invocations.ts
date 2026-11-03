@@ -3,7 +3,7 @@ import {ghArgs} from './gh.ts';
 import {withoutGitGlobals} from './git.ts';
 import {execPayloads} from './find-exec.ts';
 import {isPrefix} from './prefixes.ts';
-import {unwrap} from './scripts.ts';
+import {expandScripts, unwrap} from './scripts.ts';
 import type {Word} from './shell.ts';
 
 // The invocation view: one line per simple command, as the program would be
@@ -26,10 +26,6 @@ const KEYWORDS = new Set([
   'do',
 ]);
 const TOOLS = new Set(['git', 'gh', 'kubectl', 'helm']);
-// Starts written out line by line. A command with more words after a prefix
-// has every later start too, as slices of one spelling.
-const MAX_LINES = 32;
-
 export function spell(word: Word): string {
   if (/^[A-Za-z0-9_@%+=:,./~^-]+$/u.test(word.text)) return word.text;
   return `'${word.text.replaceAll("'", "'\\''")}'`;
@@ -64,115 +60,118 @@ interface Run {
   open: boolean;
 }
 
-// Nested or repeated `-exec` is bounded: past these limits the view is not
-// built at all, and the rules match the command's spelling as they did before
-// the view existed.
-const MAX_FIND_DEPTH = 8;
-const MAX_PAYLOADS = 256;
+// The view is built only for a command this size or smaller, and nested no
+// deeper than this; past a limit there is no view (see `invocationViews`).
+const MAX_WORDS = 1000;
+const MAX_CHARS = 8192;
+const MAX_DEPTH = 32;
+// Tool names in one open command that are each read as a start of their own.
+const MAX_TOOL_STARTS = 32;
 
-class TooMuch extends Error {}
+class Skipped extends Error {}
 
-function collect(
-  words: Word[],
-  runs: Run[],
-  budget: {payloads: number},
-  depth: number,
-): void {
+// What `find -exec` runs is a command too, and so is a literal `sh -c` script
+// among it. Only the commands are read: a script that cannot be read is not
+// followed, but then there is no view.
+function collectPayload(payload: Word[], runs: Run[], depth: number): void {
+  const {segments, decisions} = expandScripts([payload]);
+  if (decisions.length > 0) throw new Skipped();
+  for (const segment of segments) collect(segment, runs, depth);
+
+  // A payload that opens with an option is no command: it began at a word that
+  // was only an operand, so an action may follow inside it.
+  if (!payload[0]?.text.startsWith('-')) return;
+  if (depth >= MAX_DEPTH) throw new Skipped();
+  for (const inner of execPayloads(payload))
+    collectPayload(inner, runs, depth + 1);
+}
+
+function collect(words: Word[], runs: Run[], depth: number): void {
   const {command, resolved} = unwrap(withoutKeywords(words));
   if (command.length === 0) return;
 
   const open = !resolved || (isPrefix(command[0]) && command.length > 1);
   runs.push({command, open});
 
-  const positions = open ? command.map((_, i) => i) : [0];
-  let covered = 0;
-  for (const i of positions) {
-    if (i < covered || nameOf(command[i]) !== 'find') continue;
+  // One scan from the first `find` reads every payload after it.
+  const at = command.findIndex((word, i) => (open || i === 0) && isFind(word));
+  if (at < 0) return;
+  if (depth >= MAX_DEPTH) throw new Skipped();
 
-    const {payloads, end} = execPayloads(command.slice(i + 1));
-    covered = i + 1 + end;
-    if (payloads.length === 0) continue;
-
-    budget.payloads += payloads.length;
-    if (depth >= MAX_FIND_DEPTH || budget.payloads > MAX_PAYLOADS)
-      throw new TooMuch();
-    for (const payload of payloads) collect(payload, runs, budget, depth + 1);
-  }
+  for (const payload of execPayloads(command.slice(at + 1)))
+    collectPayload(payload, runs, depth + 1);
 }
 
-// Undefined when the command has more `find -exec` than the view follows.
+function isFind(word: Word): boolean {
+  return nameOf(word) === 'find';
+}
+
+function tooLarge(segments: Word[][]): boolean {
+  let words = 0;
+  let chars = 0;
+  for (const segment of segments) {
+    words += segment.length;
+    for (const word of segment) chars += word.text.length;
+    if (words > MAX_WORDS || chars > MAX_CHARS) return true;
+  }
+  return false;
+}
+
+// Undefined when there is no view: the command is large, or nests more than
+// the view follows, or runs a script it cannot read.
 function runsOf(segments: Word[][]): Run[] | undefined {
+  if (tooLarge(segments)) return undefined;
+
   const runs: Run[] = [];
-  const budget = {payloads: 0};
   try {
-    for (const segment of segments) collect(segment, runs, budget, 0);
+    for (const segment of segments) collect(segment, runs, 0);
   } catch (error) {
-    if (error instanceof TooMuch) return undefined;
+    if (error instanceof Skipped) return undefined;
     throw error;
   }
   return runs;
 }
 
-// Every start of an open command: `line(command.slice(i))` for each `i`. Past
-// MAX_LINES they are slices of one spelling, not new strings, so a command of
-// thousands of words costs little to hold.
-function startsOf(command: Word[]): {lines: string[]; rest: string[]} {
-  const lines = command
-    .slice(0, MAX_LINES)
-    .map((_, i) => line(command.slice(i)));
-  const rest: string[] = [];
-  if (command.length <= MAX_LINES) return {lines, rest};
-
+// Every start of an open command: `line(command.slice(i))` for each `i`, as
+// the tail of one spelling of the whole command.
+function startsOf(command: Word[]): string[] {
   const spelled = command.map(spell);
   const full = spelled.join(' ');
-  let offset = 0;
+  let end = 0;
 
-  for (const [i, word] of command.entries()) {
-    if (i >= MAX_LINES) {
-      // The program loses its directory; when what is left is the tail of its
-      // spelling, the rest of the line is already in `full`.
-      const name = basename(word.text);
-      const unchanged = spelled[i] === word.text && word.text.endsWith(name);
-      if (word.dynamic) rest.push(full.slice(offset));
-      else if (unchanged)
-        rest.push(full.slice(offset + word.text.length - name.length));
-      else rest.push(line(command.slice(i)));
-    }
-    offset += spelled[i].length + 1;
-  }
-  return {lines, rest};
+  return command.map((word, i) => {
+    end += spelled[i].length + (i > 0 ? 1 : 0);
+    const name = word.dynamic ? spelled[i] : basename(word.text);
+    return name + full.slice(end);
+  });
 }
 
 function runLines(runs: Run[]): string[] {
   const views = new Set<string>();
-  const slices: string[] = [];
 
   for (const {command, open} of runs) {
-    if (!open) {
-      views.add(line(command));
-      continue;
-    }
-    const {lines: starts, rest} = startsOf(command);
-    for (const view of starts) views.add(view);
-    slices.push(...rest);
+    if (!open) views.add(line(command));
+    else for (const view of startsOf(command)) views.add(view);
   }
 
-  return [...views, ...slices];
+  return [...views];
 }
 
 // The git, gh, kubectl or helm commands that run, as a rule names them:
 // without Git or GitHub global options (`git -C repo push` is `git push`).
 // A tool named only as an argument (`echo git status`) is not one, unless a
 // prefix could be running it.
+// Throws `Skipped` when a command names too many tools to read each start.
 function toolLines(runs: Run[]): string[] {
   const views = new Set<string>();
 
   for (const {command, open} of runs) {
     const positions = open ? command.map((_, i) => i) : [0];
+    const starts = positions.filter(i => TOOLS.has(nameOf(command[i])));
+    if (starts.length > MAX_TOOL_STARTS) throw new Skipped();
 
-    for (const i of positions) {
+    for (const i of starts) {
       const tool = nameOf(command[i]);
-      if (!TOOLS.has(tool)) continue;
 
       let args = command.slice(i + 1);
       if (tool === 'git') args = withoutGitGlobals(args).rest;
@@ -184,14 +183,21 @@ function toolLines(runs: Run[]): string[] {
   return [...views];
 }
 
-// The line of each simple command, for tests; empty past the limits.
+// The line of each simple command, for tests; empty when there is no view.
 export function invocations(segments: Word[][]): string[] {
   const runs = runsOf(segments);
   return runs ? runLines(runs) : [];
 }
 
-// Every view of the command, or undefined when it could not be built.
+// Every view of the command, or undefined when there is none.
 export function invocationViews(segments: Word[][]): string[] | undefined {
   const runs = runsOf(segments);
-  return runs && [...new Set([...runLines(runs), ...toolLines(runs)])];
+  if (!runs) return undefined;
+
+  try {
+    return [...new Set([...runLines(runs), ...toolLines(runs)])];
+  } catch (error) {
+    if (error instanceof Skipped) return undefined;
+    throw error;
+  }
 }
