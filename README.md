@@ -197,21 +197,32 @@ Supported selectors:
   use `BashRawRegex((?m:...))` to preserve their original matching scope.
 - `BashCmdRegex(expression)` uses the same regex engine and modifiers, but is
   matched against each simple command's _invocation_ rather than the command
-  text: assignments, `env` and `time` are removed, the program is named without
-  its directory, words are spelled without quoting, and Git and GitHub global
-  options are dropped. Commands inside literal `sh -c` and `eval` strings are
-  included, and so is the command after a prefix such as `sudo` or `timeout`.
-  A rule such as `BashCmdRegex(^pnpm -r publish)` therefore matches
-  `FOO=1 /usr/bin/pnpm -r publish` but not `echo pnpm -r publish`. The view
-  is skipped, not built, for a command of more than 1,000 words or about 8 KB
-  of word text, `find -exec` nested more than 32 deep, more than 32 tool names
-  in one prefixed command, a computed `sh -c` script inside a `find -exec`
-  payload, or more work than a fixed budget when `find -exec` payloads overlap
-  (32,000 payload words, or 8.5 million characters of command starts). Without
-  a view, a `BashCmdRegex` rule matches every such command: a deny rule denies
-  it and an ask rule asks, so a skipped view never allows. The work for any
-  command is bounded by those limits. The view is built only when a policy
-  has a `BashCmdRegex` rule, so a policy without one pays nothing for it.
+  text: shell keywords, redirections, assignments, `env` and `time` are
+  removed, the program is named without its directory, words are spelled
+  without quoting, and Git and GitHub global options are dropped. Commands
+  inside literal `sh -c` and `eval` strings are included, wherever the script
+  is the command that runs (after a keyword, in a function body, or after a
+  prefix such as `sudo`, `command` or `timeout`), and so is the command after
+  such a prefix. A rule such as `BashCmdRegex(^pnpm -r publish)` therefore
+  matches `FOO=1 /usr/bin/pnpm -r publish` but not `echo pnpm -r publish`.
+  The view is built when a `BashCmdRegex` rule is evaluated against a command,
+  so a policy with no such rule, and a command no such rule is evaluated for,
+  pay nothing for it.
+  The view is skipped for a command of more than 1,000 words or about 8 KB of
+  word text, `find -exec` nested more than 32 deep, more than 32 tool names in
+  one prefixed command, a computed `sh -c` or `eval` script (inside a
+  `find -exec` payload, after a keyword or after a prefix), or more work than a
+  fixed budget when `find -exec` payloads or scripts overlap (32,000 payload
+  words, or 8.5 million characters of command starts). Without a view, a
+  `BashCmdRegex` rule applies to a command that holds its _trigger words_, the
+  literal words every match of its expression needs (`pnpm`, `-r` and
+  `publish` for `^pnpm -r publish`), found in the command as written or in its
+  canonical spelling, in any case: a deny rule denies it and an ask rule asks.
+  A command without them is not blocked by the rule, so a long `git commit -m`
+  is not caught by a publish rule. An expression with no such words (`^x`, or
+  alternatives that share none) applies to every command with no view, so a
+  skipped view never allows what the rule could match. The work for any command
+  is bounded by those limits.
 - File selectors use `~/` for home, `//` for filesystem root, and relative paths
   for the current working directory. `*` stays within one segment; a complete
   `**` segment spans zero or more segments.
