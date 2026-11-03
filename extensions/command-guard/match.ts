@@ -38,14 +38,18 @@ function flattened(command: string): string {
   return command.replace(/\\\r?\n/gu, ' ').replace(/[ \t]+/gu, ' ');
 }
 
-// `commands` holds the command as written, its canonical spelling and the
-// same with `;` between commands. Raw rules read the first and last; others
-// read the first two, plain and flattened.
+// `commands` holds the command as written, its canonical spelling and then
+// each canonical line. Raw rules read the command and the lines (the joined
+// canonical text only when there are none); others read the first two, plain
+// and flattened.
 function bashMatches(rule: Rule, commands: string[]): boolean {
   const {regex, pattern} = rule;
   const spellings =
     rule.flatten === false
-      ? [commands[0], commands[2] ?? commands[1]]
+      ? [
+          commands[0],
+          ...(commands.length > 2 ? commands.slice(2) : commands.slice(1)),
+        ]
       : commands.slice(0, 2).flatMap(command => [command, flattened(command)]);
 
   if (regex) return spellings.some(text => regex.test(text));
