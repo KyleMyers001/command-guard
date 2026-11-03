@@ -157,6 +157,8 @@ const CHECKOUT_SAFE_OPTIONS = new Set([
   '--no-recurse-submodules',
 ]);
 
+const isDetach = (arg: Word) => arg.text === '--detach' && !arg.dynamic;
+
 function looksLikePath(operand: string): boolean {
   // A leading ./~: or trailing slash, a glob, or a file extension.
   return /^[./~:]|\/$|[*?\x5b]|\.[A-Za-z][A-Za-z0-9]*$/u.test(operand);
@@ -190,6 +192,13 @@ function classifyCheckout(
 
   const [operand] = operands;
   if (operand.text === '-') return [];
+
+  // `--detach` never takes a path: Git refuses `--detach README.md`, so a
+  // literal operand can only be a commit and nothing in the tree is at risk.
+  // A dynamic word could still expand to `-f` or `--`, and a Git directory or
+  // work tree that cannot be established may be anywhere, so those ask.
+  if (workdirs && !createsBranch && !operand.dynamic && args.some(isDetach))
+    return [];
 
   const mayBePath =
     operand.dynamic ||
