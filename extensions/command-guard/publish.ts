@@ -1,7 +1,19 @@
 import {basename} from 'node:path';
 import type {Decision} from './commands.ts';
-import type {Tool} from './publish-options.ts';
-import {VALUE_OPTIONS} from './publish-options.ts';
+import {
+  INFO_FLAGS,
+  KEEPS_COMMAND,
+  OPTIONED_WRAPPERS,
+  VALUE_OPTIONS,
+  type Tool,
+} from './publish-options.ts';
+import {
+  firstWords,
+  literal,
+  npmCommand,
+  programOf,
+  startsWithPublish,
+} from './publish-scan.ts';
 import {expandScripts, unwrap} from './scripts.ts';
 import {parseSegments, type Word} from './shell.ts';
 
@@ -22,78 +34,11 @@ const PUBLISHES: Decision = {
 
 const TOOLS = new Set<string>(['npm', 'pnpm', 'yarn', 'lerna', 'changeset']);
 const RUNNERS = new Set(['npx', 'pnpx']);
-// The first wrapper word is the command; the rest cannot be told apart from
-// its own options, so any later word may be the command.
-const KEEPS_COMMAND = new Set([
-  'command',
-  'exec',
-  'builtin',
-  'nohup',
-  'setsid',
-]);
-const OPTIONED_WRAPPERS = new Set([
-  'sudo',
-  'doas',
-  'nice',
-  'ionice',
-  'xargs',
-  'timeout',
-  'stdbuf',
-  'caffeinate',
-]);
 const MAX_DEPTH = 3;
 
 const SCRIPT_RUNNERS = new Set(['run', 'run-script', 'rum', 'urn']);
-// npm prints help or the version and stops at these, whatever follows.
-const INFO_FLAGS = new Set(['-h', '-?', '--help', '--version', '-v']);
 const RECURSIVE = new Set(['recursive', 'multi', 'm']);
 const FETCHERS = new Set(['exec', 'x', 'dlx']);
-function literal(word: Word | undefined): string {
-  return !word || word.dynamic ? '' : word.text;
-}
-
-// Indexes where the first non-option word may be. A dynamic word, or an option
-// whose value is unknown, is counted both ways.
-function firstWords(args: Word[], valued: Set<string>): number[] {
-  const found = new Set<number>();
-  const seen = new Set<number>();
-  const todo = [0];
-
-  for (let i = todo.pop(); i !== undefined; i = todo.pop()) {
-    if (i >= args.length || seen.has(i)) continue;
-    seen.add(i);
-    const {text, dynamic} = args[i];
-
-    if (text === '--') found.add(i + 1);
-    else if (dynamic) {
-      found.add(i);
-      todo.push(i + 1);
-    } else if (!text.startsWith('-') || text === '-') found.add(i);
-    else if (text.includes('=')) todo.push(i + 1);
-    else if (valued.has(text)) todo.push(i + 2);
-    else todo.push(i + 1, i + 2);
-  }
-
-  return [...found].filter(i => i < args.length);
-}
-
-// Whether `publish` can be the script name or subcommand at the start of args.
-function startsWithPublish(args: Word[], valued: Set<string>): boolean {
-  return firstWords(args, valued).some(i => literal(args[i]) === 'publish');
-}
-
-// `lerna@7` and `@changesets/cli@2` name the program `lerna` and the changesets CLI.
-function programOf(word: Word): string {
-  const name = literal(word).replace(/(?<=.)@[^/@]*$/u, '');
-  return name === '@changesets/cli' ? 'changeset' : basename(name);
-}
-
-function npmCommand(name: string): string {
-  // npm accepts any unambiguous prefix of a command name: `npm pu` publishes.
-  if (name.length >= 2 && 'publish'.startsWith(name)) return 'publish';
-  return name.length >= 5 && name.startsWith('run-') ? 'run-script' : name;
-}
-
 // Whether a shell script, such as the value of `npx -c`, runs a publish.
 function scriptPublishes(script: string): boolean {
   return expandScripts(parseSegments(script)).segments.some(
@@ -101,36 +46,66 @@ function scriptPublishes(script: string): boolean {
   );
 }
 
-// A program fetched and run by `npx`, `npm exec`, `pnpm dlx` and the like.
-// `-c script` of npx and npm exec is a shell script, not a program name.
-function fetched(args: Word[], depth: number, npmStyle: boolean): boolean {
-  const calls = args.some((word, i) => {
-    if (!npmStyle) return false;
-    if (word.text.startsWith('--call='))
-      return scriptPublishes(word.text.slice(7));
+// The script of an option such as `-c script`, `-c=script` or `--call=script`.
+function callScripts(args: Word[], end: number): string[] {
+  const scripts: string[] = [];
 
-    return (
-      ['-c', '--call'].includes(word.text) &&
-      i + 1 < args.length &&
-      scriptPublishes(args[i + 1].text)
-    );
-  });
+  for (let i = 0; i < end; i++) {
+    const {text} = args[i];
+    const attached = /^(?:--call=|-c=?(?=.))/u.exec(text);
+
+    if (attached && text !== '--call=')
+      scripts.push(text.slice(attached[0].length));
+    else if (['-c', '--call'].includes(text) && i + 1 < args.length)
+      scripts.push(args[i + 1].text);
+  }
+
+  return scripts;
+}
+
+// A program fetched and run by `npx`, `npm exec`, `pnpm dlx` and the like.
+// `-c script` of npx and npm exec is a shell script, not a program name; it
+// is an option of the runner only up to the program, after which it belongs
+// to the program (`npm exec -- tsc --call=x` runs no script).
+function fetched(args: Word[], depth: number, npmStyle: boolean): boolean {
   const valued = npmStyle ? VALUE_OPTIONS.runner : VALUE_OPTIONS.dlx;
+  const starts = firstWords(args, valued);
+  const last = starts.length > 0 ? Math.max(...starts) : args.length;
+  // A dynamic word before the program may be an option, so look at all.
+  const end = args.slice(0, last + 1).some(word => word.dynamic)
+    ? args.length
+    : last;
 
   return (
-    calls ||
-    firstWords(args, valued).some(i =>
+    (npmStyle && callScripts(args, end).some(scriptPublishes)) ||
+    starts.some(i =>
       publishes(programOf(args[i]), args.slice(i + 1), depth + 1),
     )
   );
 }
 
+// `pnpm exec` and `yarn exec` hand their arguments, joined, to a shell, and
+// `pnpm dlx -c` does the same.
+function execPublishes(args: Word[], depth: number): boolean {
+  const joined = (from: number) =>
+    scriptPublishes(
+      args
+        .slice(from)
+        .map(word => word.text)
+        .join(' '),
+    );
+
+  return (
+    firstWords(args, VALUE_OPTIONS.dlx).some(joined) ||
+    fetched(args, depth, false)
+  );
+}
+
 function runsPublish(tool: Tool, args: Word[], depth: number): boolean {
   const valued = VALUE_OPTIONS[tool];
+  const info = tool === 'npm' ? INFO_FLAGS : undefined;
 
-  return firstWords(args, valued).some(i => {
-    if (tool === 'npm' && args.slice(0, i).some(w => INFO_FLAGS.has(w.text)))
-      return false;
+  return firstWords(args, valued, info).some(i => {
     const name =
       tool === 'npm' ? npmCommand(literal(args[i])) : literal(args[i]);
     const rest = args.slice(i + 1);
@@ -141,11 +116,9 @@ function runsPublish(tool: Tool, args: Word[], depth: number): boolean {
       return firstWords(rest, valued).some(j => nested(rest.slice(j), depth));
     if (TOOLS.has(name) && tool === 'yarn')
       return publishes(name, rest, depth + 1);
-    // `yarn exec` runs its arguments, joined, as a shell script.
-    if (tool === 'yarn' && name === 'exec')
-      return scriptPublishes(rest.map(word => word.text).join(' '));
-    if (FETCHERS.has(name) && ['npm', 'pnpm', 'yarn'].includes(tool))
-      return fetched(rest, depth, tool === 'npm');
+    if (FETCHERS.has(name) && tool === 'npm') return fetched(rest, depth, true);
+    if (FETCHERS.has(name) && ['pnpm', 'yarn'].includes(tool))
+      return execPublishes(rest, depth);
     // pnpm runs a dependency's program by name: `pnpm changeset publish`.
     if (tool === 'pnpm' && TOOLS.has(name))
       return publishes(name, rest, depth + 1);

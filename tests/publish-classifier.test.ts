@@ -81,6 +81,48 @@ test('denies publish through every npm, pnpm and yarn spelling', async () => {
   );
 });
 
+test("round 2: an info flag that is an option's value does not hide a publish", async () => {
+  await expectAll(
+    [
+      'npm --registry -v publish',
+      'npm --otp -h publish',
+      'npm --access -h publish',
+      'npm --cache -h publish',
+      'npm --loglevel -h publish',
+      'npm --userconfig -h publish',
+      'npm --registry -v pub',
+      'npm --otp -h pu',
+      'npm --scope -v publis',
+      'npm --registry --help publish',
+      'npm --otp -? publish',
+      'npm --unknown-option -v publish',
+      'npm -w pkg --tag -h publish',
+    ],
+    'DENY',
+  );
+});
+
+test('round 2: script strings given to exec, dlx and npx are classified', async () => {
+  await expectAll(
+    [
+      "pnpm -c exec 'lerna publish'",
+      "pnpm -c exec 'npm publish'",
+      "pnpm exec 'npm publish'",
+      "pnpm dlx -c 'lerna publish'",
+      "pnpm dlx 'changeset publish'",
+      'yarn exec -- lerna publish',
+      "yarn exec -- 'npm publish'",
+      "npx -c='lerna publish'",
+      "npx '-clerna publish'",
+      "npx -y -c 'lerna publish'",
+      "npm exec --call='lerna publish' -- tsc",
+      "npx --unknown -c 'lerna publish'",
+      "npx $OPT -c 'npm publish'",
+    ],
+    'DENY',
+  );
+});
+
 test('denies lerna and changesets publish, however they are started', async () => {
   await expectAll(
     [
@@ -164,6 +206,18 @@ test('leaves everything that is not a publish alone', () => {
     'npm ls --workspaces',
     'npm -w pkg run build',
     'npm --version',
+    // Help and version flags that npm reaches as options stop it.
+    'npm -v publish',
+    'npm --registry=x -h publish',
+    'npm --foo=1 -v publish',
+    'npm --version pub',
+    // `-c` after the program belongs to the program.
+    "npm exec -- tsc --call='lerna publish'",
+    "npx tsc --call='lerna publish'",
+    "npx tsc -c 'lerna publish'",
+    'pnpm exec echo "npm publish"',
+    'pnpm dlx -c prettier --check .',
+    'yarn exec -- tsc --noEmit',
     'npm --help publish',
     'npm -h publish',
     'npm --version publish',
