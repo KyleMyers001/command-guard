@@ -161,7 +161,7 @@ test('a command past a size limit has no view; below it, every start', () => {
   }
 });
 
-test('no view: a deny rule denies and an ask rule asks, whatever the command', async t => {
+test('no view: a deny rule denies and an ask rule asks when the command holds the rule’s words', async t => {
   const padded = [
     words('sudo ', 'x', 5000),
     `echo ${'a'.repeat(9000)}`,
@@ -174,12 +174,29 @@ test('no view: a deny rule denies and an ask rule asks, whatever the command', a
   ];
   for (const command of padded) {
     assert.equal(analyzeCommand(command, cwd).invocations, undefined);
+    // The rule's words are not in it: it is not blocked (PR 4, commit 1).
     assert.equal(
       await decide(t, 'deny', command),
+      'ALLOW',
+      command.slice(0, 40),
+    );
+    assert.equal(
+      await decide(t, 'ask', command),
+      'ALLOW',
+      command.slice(0, 40),
+    );
+
+    const publishing = `${command}; pnpm -r publish`;
+    assert.equal(
+      await decide(t, 'deny', publishing),
       'DENY',
       command.slice(0, 40),
     );
-    assert.equal(await decide(t, 'ask', command), 'ASK', command.slice(0, 40));
+    assert.equal(
+      await decide(t, 'ask', publishing),
+      'ASK',
+      command.slice(0, 40),
+    );
   }
   // With a view the rule is as exact as before.
   for (const kind of ['deny', 'ask'] as const) {

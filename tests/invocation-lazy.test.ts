@@ -97,7 +97,11 @@ test('a BashCmdRegex deny or ask rule builds the view, as before', async t => {
   assert.equal(await builtBy(guard, ['ls']), 1);
   assert.equal(await run(guard, 'FOO=1 /usr/bin/pnpm -r publish'), 'DENY');
   assert.equal(await run(guard, 'echo pnpm -r publish'), 'ALLOW');
-  assert.equal(await run(guard, `sudo ${'x '.repeat(1100)}`), 'DENY');
+  assert.equal(await run(guard, `sudo ${'x '.repeat(1100)}`), 'ALLOW');
+  assert.equal(
+    await run(guard, `sudo ${'x '.repeat(1100)}pnpm -r publish`),
+    'DENY',
+  );
 
   writePolicy(policy, [], ['BashCmdRegex(^pnpm -r publish)']);
   assert.equal(await builtBy(guard, ['ls']), 1);

@@ -1,6 +1,7 @@
 import {join, resolve} from 'node:path';
 import {canonicalPath} from './paths.ts';
 import type {GuardTool, Rule} from './policy.ts';
+import {hasTriggers} from './triggers.ts';
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
@@ -47,10 +48,13 @@ function bashMatches(
 ): boolean {
   const {regex, pattern} = rule;
   if (rule.view === 'invocation' && regex) {
+    if (views) return views.some(text => regex.test(text));
     // No view (the command is too large or nested, or runs a script that
-    // cannot be read): the rule is taken to match, so a deny denies and an ask
-    // asks. Never a silent allow.
-    return views === undefined || views.some(text => regex.test(text));
+    // cannot be read). If the command holds the rule's trigger words the rule
+    // matches, so a deny denies and an ask asks; with no trigger words to go
+    // by, any such command does. Otherwise it is read as text, like BashRegex.
+    const {triggers} = rule;
+    if (!triggers || hasTriggers(commands.join('\n'), triggers)) return true;
   }
   const spellings =
     rule.flatten === false

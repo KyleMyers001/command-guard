@@ -83,8 +83,10 @@ test('BashCmdRegex compiles like BashRegex and is matched against views', t => {
     matches(compiled, 'bash', text, root, root, ['pnpm -r publish']),
     true,
   );
-  // Without a view the rule matches whatever the command is.
-  assert.equal(matches(compiled, 'bash', ['echo hi'], root, root), true);
+  // Without a view it matches a command that holds its trigger words.
+  assert.deepEqual(compiled.triggers, [['pnpm', '-r', 'publish']]);
+  assert.equal(matches(compiled, 'bash', ['echo hi'], root, root), false);
+  assert.equal(matches(compiled, 'bash', text, root, root), true);
   assert.equal(
     matches(compiled, 'read', ['pnpm -r publish'], root, root, [
       'pnpm -r publish',
