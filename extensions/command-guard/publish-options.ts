@@ -16,7 +16,7 @@ const COMMON_VALUES = [
   '--cwd',
   '--dir',
 ];
-export const VALUE_OPTIONS: Record<Tool | 'runner', Set<string>> = {
+export const VALUE_OPTIONS: Record<Tool | 'runner' | 'dlx', Set<string>> = {
   npm: new Set([...COMMON_VALUES, '-w', '--workspace', '--include', '--omit']),
   pnpm: new Set([
     ...COMMON_VALUES,
@@ -36,5 +36,8 @@ export const VALUE_OPTIONS: Record<Tool | 'runner', Set<string>> = {
   ]),
   lerna: new Set([...COMMON_VALUES, '--concurrency', '--ignore', '--dist-tag']),
   changeset: new Set(COMMON_VALUES),
+  // `npx` and `npm exec`: `-c`/`--call` carries a shell script.
   runner: new Set([...COMMON_VALUES, '-p', '--package', '-c', '--call']),
+  // `pnpm dlx` and `yarn dlx`: `-c` is a flag there.
+  dlx: new Set([...COMMON_VALUES, '-p', '--package']),
 };

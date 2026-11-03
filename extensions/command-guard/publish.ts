@@ -3,7 +3,7 @@ import type {Decision} from './commands.ts';
 import type {Tool} from './publish-options.ts';
 import {VALUE_OPTIONS} from './publish-options.ts';
 import {unwrap} from './scripts.ts';
-import type {Word} from './shell.ts';
+import {parseSegments, type Word} from './shell.ts';
 
 // Package publishing is hard to undo, so it is always denied. This reads a
 // command's decoded arguments instead of its text, so the options npm, pnpm,
@@ -94,9 +94,30 @@ function npmCommand(name: string): string {
   return name.length >= 5 && name.startsWith('run-') ? 'run-script' : name;
 }
 
-function fetched(args: Word[], depth: number): boolean {
-  return firstWords(args, VALUE_OPTIONS.runner).some(i =>
-    publishes(programOf(args[i]), args.slice(i + 1), depth + 1),
+// Whether a shell script, such as the value of `npx -c`, runs a publish.
+function scriptPublishes(script: string): boolean {
+  return parseSegments(script).some(
+    segment => classifyPublish(segment).length > 0,
+  );
+}
+
+// A program fetched and run by `npx`, `npm exec`, `pnpm dlx` and the like.
+// `-c script` of npx and npm exec is a shell script, not a program name.
+function fetched(args: Word[], depth: number, npmStyle: boolean): boolean {
+  const calls = args.some(
+    (word, i) =>
+      npmStyle &&
+      ['-c', '--call'].includes(word.text) &&
+      i + 1 < args.length &&
+      scriptPublishes(args[i + 1].text),
+  );
+  const valued = npmStyle ? VALUE_OPTIONS.runner : VALUE_OPTIONS.dlx;
+
+  return (
+    calls ||
+    firstWords(args, valued).some(i =>
+      publishes(programOf(args[i]), args.slice(i + 1), depth + 1),
+    )
   );
 }
 
@@ -116,8 +137,11 @@ function runsPublish(tool: Tool, args: Word[], depth: number): boolean {
       return firstWords(rest, valued).some(j => nested(rest.slice(j), depth));
     if (TOOLS.has(name) && tool === 'yarn')
       return publishes(name, rest, depth + 1);
+    // `yarn exec` runs its arguments, joined, as a shell script.
+    if (tool === 'yarn' && name === 'exec')
+      return scriptPublishes(rest.map(word => word.text).join(' '));
     if (FETCHERS.has(name) && ['npm', 'pnpm', 'yarn'].includes(tool))
-      return fetched(rest, depth);
+      return fetched(rest, depth, tool === 'npm');
     // pnpm runs a dependency's program by name: `pnpm changeset publish`.
     if (tool === 'pnpm' && TOOLS.has(name))
       return publishes(name, rest, depth + 1);
@@ -145,7 +169,7 @@ function runsPublish(tool: Tool, args: Word[], depth: number): boolean {
 // Whether the program `name` with these arguments publishes.
 function publishes(name: string, args: Word[], depth: number): boolean {
   if (depth > MAX_DEPTH) return true;
-  if (RUNNERS.has(name)) return fetched(args, depth);
+  if (RUNNERS.has(name)) return fetched(args, depth, true);
   return TOOLS.has(name) && runsPublish(name as Tool, args, depth);
 }
 
