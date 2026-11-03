@@ -1,7 +1,7 @@
 import {basename, resolve} from 'node:path';
 import {classifyGit, withoutGitGlobals} from './git.ts';
 import {ghArgs} from './gh.ts';
-import {invocations, spell, toolInvocations} from './invocations.ts';
+import {invocationViews, spell} from './invocations.ts';
 import {expandScripts} from './scripts.ts';
 import {parseSegments, type Word} from './shell.ts';
 
@@ -22,7 +22,9 @@ export interface Analysis {
   canonical: string;
   decisions: Decision[];
   // One line per simple command as it would be started: see invocations.ts.
-  invocations: string[];
+  // Undefined when the command nests more `find -exec` than the view follows;
+  // rules then match its spelling alone, as they did without the view.
+  invocations?: string[];
 }
 
 const TOOLS = new Set(['git', 'gh', 'kubectl', 'helm']);
@@ -153,8 +155,6 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
   return {
     canonical: lines.join('\n'),
     decisions,
-    invocations: [
-      ...new Set([...invocations(segments), ...toolInvocations(segments)]),
-    ],
+    invocations: invocationViews(segments),
   };
 }

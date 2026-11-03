@@ -47,7 +47,7 @@ test('a prefix or an unknown wrapper option also exposes the later command', () 
 });
 
 test('shell strings contribute their own commands, and Git globals are dropped', () => {
-  const {invocations: found} = analyzeCommand(
+  const {invocations: found = []} = analyzeCommand(
     "bash -c 'cd x && git -C repo push --force'",
     process.cwd(),
   );
@@ -59,7 +59,7 @@ test('shell strings contribute their own commands, and Git globals are dropped',
   const mention = analyzeCommand('echo git status', process.cwd()).invocations;
   assert.deepEqual(mention, ['echo git status']);
   const wrapped = analyzeCommand('FOO=1 git -C r status', process.cwd());
-  assert.ok(wrapped.invocations.includes('git status'));
+  assert.ok(wrapped.invocations?.includes('git status'));
 });
 
 test('a very long command still has every start, held as slices', () => {

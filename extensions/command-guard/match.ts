@@ -46,14 +46,16 @@ function bashMatches(
   views: string[] | undefined,
 ): boolean {
   const {regex, pattern} = rule;
-  if (rule.view === 'invocation' && regex) {
-    // Without a view, fall back to the spellings, which only adds matches.
-    return (views ?? commands).some(text => regex.test(text));
-  }
   const spellings =
     rule.flatten === false
       ? commands
       : commands.flatMap(command => [command, flattened(command)]);
+
+  if (rule.view === 'invocation' && regex) {
+    // Without a view, match the spellings as a text rule does, which only adds
+    // matches.
+    return (views ?? spellings).some(text => regex.test(text));
+  }
 
   if (regex) return spellings.some(text => regex.test(text));
   if (pattern === undefined) return true;

@@ -1,6 +1,7 @@
 import {basename} from 'node:path';
 import {ghArgs} from './gh.ts';
 import {withoutGitGlobals} from './git.ts';
+import {execPayloads} from './find-exec.ts';
 import {isPrefix} from './prefixes.ts';
 import {unwrap} from './scripts.ts';
 import type {Word} from './shell.ts';
@@ -24,7 +25,6 @@ const KEYWORDS = new Set([
   'until',
   'do',
 ]);
-const FIND_EXEC = new Set(['-exec', '-execdir', '-ok', '-okdir']);
 const TOOLS = new Set(['git', 'gh', 'kubectl', 'helm']);
 // Starts written out line by line. A command with more words after a prefix
 // has every later start too, as slices of one spelling.
@@ -64,19 +64,20 @@ interface Run {
   open: boolean;
 }
 
-// The commands `find` runs for -exec and its relatives.
-function* execPayloads(args: Word[]): Generator<Word[]> {
-  for (let i = 0; i < args.length; i++) {
-    if (args[i].dynamic || !FIND_EXEC.has(args[i].text)) continue;
+// Nested or repeated `-exec` is bounded: past these limits the view is not
+// built at all, and the rules match the command's spelling as they did before
+// the view existed.
+const MAX_FIND_DEPTH = 8;
+const MAX_PAYLOADS = 256;
 
-    const end = args.findIndex(
-      (word, j) => j > i && !word.dynamic && /^[;+]$/u.test(word.text),
-    );
-    yield args.slice(i + 1, end < 0 ? args.length : end);
-  }
-}
+class TooMuch extends Error {}
 
-function collect(words: Word[], runs: Run[]): void {
+function collect(
+  words: Word[],
+  runs: Run[],
+  budget: {payloads: number},
+  depth: number,
+): void {
   const {command, resolved} = unwrap(withoutKeywords(words));
   if (command.length === 0) return;
 
@@ -84,16 +85,31 @@ function collect(words: Word[], runs: Run[]): void {
   runs.push({command, open});
 
   const positions = open ? command.map((_, i) => i) : [0];
+  let covered = 0;
   for (const i of positions) {
-    if (nameOf(command[i]) !== 'find') continue;
-    for (const payload of execPayloads(command.slice(i + 1)))
-      collect(payload, runs);
+    if (i < covered || nameOf(command[i]) !== 'find') continue;
+
+    const {payloads, end} = execPayloads(command.slice(i + 1));
+    covered = i + 1 + end;
+    if (payloads.length === 0) continue;
+
+    budget.payloads += payloads.length;
+    if (depth >= MAX_FIND_DEPTH || budget.payloads > MAX_PAYLOADS)
+      throw new TooMuch();
+    for (const payload of payloads) collect(payload, runs, budget, depth + 1);
   }
 }
 
-function runsOf(segments: Word[][]): Run[] {
+// Undefined when the command has more `find -exec` than the view follows.
+function runsOf(segments: Word[][]): Run[] | undefined {
   const runs: Run[] = [];
-  for (const segment of segments) collect(segment, runs);
+  const budget = {payloads: 0};
+  try {
+    for (const segment of segments) collect(segment, runs, budget, 0);
+  } catch (error) {
+    if (error instanceof TooMuch) return undefined;
+    throw error;
+  }
   return runs;
 }
 
@@ -127,17 +143,17 @@ function startsOf(command: Word[]): {lines: string[]; rest: string[]} {
   return {lines, rest};
 }
 
-export function invocations(segments: Word[][]): string[] {
+function runLines(runs: Run[]): string[] {
   const views = new Set<string>();
   const slices: string[] = [];
 
-  for (const {command, open} of runsOf(segments)) {
+  for (const {command, open} of runs) {
     if (!open) {
       views.add(line(command));
       continue;
     }
-    const {lines, rest} = startsOf(command);
-    for (const view of lines) views.add(view);
+    const {lines: starts, rest} = startsOf(command);
+    for (const view of starts) views.add(view);
     slices.push(...rest);
   }
 
@@ -148,10 +164,10 @@ export function invocations(segments: Word[][]): string[] {
 // without Git or GitHub global options (`git -C repo push` is `git push`).
 // A tool named only as an argument (`echo git status`) is not one, unless a
 // prefix could be running it.
-export function toolInvocations(segments: Word[][]): string[] {
+function toolLines(runs: Run[]): string[] {
   const views = new Set<string>();
 
-  for (const {command, open} of runsOf(segments)) {
+  for (const {command, open} of runs) {
     const positions = open ? command.map((_, i) => i) : [0];
 
     for (const i of positions) {
@@ -166,4 +182,16 @@ export function toolInvocations(segments: Word[][]): string[] {
   }
 
   return [...views];
+}
+
+// The line of each simple command, for tests; empty past the limits.
+export function invocations(segments: Word[][]): string[] {
+  const runs = runsOf(segments);
+  return runs ? runLines(runs) : [];
+}
+
+// Every view of the command, or undefined when it could not be built.
+export function invocationViews(segments: Word[][]): string[] | undefined {
+  const runs = runsOf(segments);
+  return runs && [...new Set([...runLines(runs), ...toolLines(runs)])];
 }

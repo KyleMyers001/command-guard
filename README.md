@@ -202,7 +202,10 @@ Supported selectors:
   options are dropped. Commands inside literal `sh -c` and `eval` strings are
   included, and so is the command after a prefix such as `sudo` or `timeout`.
   A rule such as `BashCmdRegex(^pnpm -r publish)` therefore matches
-  `FOO=1 /usr/bin/pnpm -r publish` but not `echo pnpm -r publish`.
+  `FOO=1 /usr/bin/pnpm -r publish` but not `echo pnpm -r publish`. A command
+  that nests `find -exec` more than 8 deep, or has more than 256 payloads, has
+  no invocation view; the rule is then matched against the command's text, as a
+  `BashRegex` rule is.
 - File selectors use `~/` for home, `//` for filesystem root, and relative paths
   for the current working directory. `*` stays within one segment; a complete
   `**` segment spans zero or more segments.
