@@ -3,7 +3,7 @@ import {ghArgs} from './gh.ts';
 import {withoutGitGlobals} from './git.ts';
 import {execPayloads} from './find-exec.ts';
 import {isPrefix} from './prefixes.ts';
-import {expandScripts, unwrap} from './scripts.ts';
+import {expandScripts} from './scripts.ts';
 import type {Word} from './shell.ts';
 import {
   MAX_DEPTH,
@@ -15,6 +15,7 @@ import {
   type Reading,
   type Run,
 } from './view-limits.ts';
+import {commandOf} from './view-command.ts';
 import {scriptsOf} from './view-scripts.ts';
 
 // The invocation view: one line per simple command, as the program would be
@@ -24,18 +25,6 @@ import {scriptsOf} from './view-scripts.ts';
 // written `^pnpm -r publish` also covers `FOO=1 env /usr/bin/pnpm -r publish`
 // and `if true; then pnpm -r publish; fi`.
 
-// Words that stand where a command may start but are not part of it.
-const KEYWORDS = new Set([
-  '!',
-  '{',
-  'if',
-  'then',
-  'else',
-  'elif',
-  'while',
-  'until',
-  'do',
-]);
 const TOOLS = new Set(['git', 'gh', 'kubectl', 'helm']);
 export function spell(word: Word): string {
   if (/^[A-Za-z0-9_@%+=:,./~^-]+$/u.test(word.text)) return word.text;
@@ -44,27 +33,6 @@ export function spell(word: Word): string {
 
 function nameOf(word: Word): string {
   return word.dynamic ? '' : basename(word.text);
-}
-
-// `segment` without the shell keywords that introduce its command.
-export function withoutKeywords(segment: Word[]): Word[] {
-  // A lone `{` is flagged dynamic (brace expansion) but is only the keyword.
-  const keyword = ({text, dynamic}: Word) =>
-    KEYWORDS.has(text) && (!dynamic || text === '{');
-
-  // `function name {` only names the body that follows.
-  const definition = (i: number) =>
-    segment[i].text === 'function' &&
-    !segment[i].dynamic &&
-    segment[i + 2]?.text === '{';
-
-  let i = 0;
-  while (i < segment.length) {
-    if (keyword(segment[i])) i++;
-    else if (definition(i)) i += 3;
-    else break;
-  }
-  return segment.slice(i);
 }
 
 function line(words: Word[]): string {
@@ -92,8 +60,7 @@ function collectPayload(payload: Word[], read: Reading, depth: number): void {
 }
 
 function collect(words: Word[], read: Reading, depth: number): void {
-  const bare = withoutKeywords(words);
-  const {command, resolved} = unwrap(bare);
+  const {command, resolved, bare, stripped} = commandOf(words);
   if (command.length === 0) return;
 
   const open = !resolved || (isPrefix(command[0]) && command.length > 1);
@@ -101,7 +68,7 @@ function collect(words: Word[], read: Reading, depth: number): void {
   if (open) chargeStarts(command, read);
 
   // A script after a keyword was not expanded with the segments.
-  if (bare.length < words.length) {
+  if (stripped) {
     if (depth >= MAX_DEPTH) throw new Skipped();
     for (const inner of scriptsOf(bare, read)) collect(inner, read, depth + 1);
   }
