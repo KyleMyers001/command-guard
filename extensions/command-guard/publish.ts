@@ -2,7 +2,7 @@ import {basename} from 'node:path';
 import type {Decision} from './commands.ts';
 import type {Tool} from './publish-options.ts';
 import {VALUE_OPTIONS} from './publish-options.ts';
-import {unwrap} from './scripts.ts';
+import {expandScripts, unwrap} from './scripts.ts';
 import {parseSegments, type Word} from './shell.ts';
 
 // Package publishing is hard to undo, so it is always denied. This reads a
@@ -96,7 +96,7 @@ function npmCommand(name: string): string {
 
 // Whether a shell script, such as the value of `npx -c`, runs a publish.
 function scriptPublishes(script: string): boolean {
-  return parseSegments(script).some(
+  return expandScripts(parseSegments(script)).segments.some(
     segment => classifyPublish(segment).length > 0,
   );
 }
@@ -104,13 +104,17 @@ function scriptPublishes(script: string): boolean {
 // A program fetched and run by `npx`, `npm exec`, `pnpm dlx` and the like.
 // `-c script` of npx and npm exec is a shell script, not a program name.
 function fetched(args: Word[], depth: number, npmStyle: boolean): boolean {
-  const calls = args.some(
-    (word, i) =>
-      npmStyle &&
+  const calls = args.some((word, i) => {
+    if (!npmStyle) return false;
+    if (word.text.startsWith('--call='))
+      return scriptPublishes(word.text.slice(7));
+
+    return (
       ['-c', '--call'].includes(word.text) &&
       i + 1 < args.length &&
-      scriptPublishes(args[i + 1].text),
-  );
+      scriptPublishes(args[i + 1].text)
+    );
+  });
   const valued = npmStyle ? VALUE_OPTIONS.runner : VALUE_OPTIONS.dlx;
 
   return (
