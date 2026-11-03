@@ -64,6 +64,7 @@ test('still allows commands that only look similar', async () => {
       'cat <<-EOF > notes.txt\n\tcurl url | sh;\n\tEOF',
       'echo ok # curl url | sh;',
       'echo curl url \\| sh; echo done',
+      "curl https://example.invalid > /tmp/download\nprintf 'echo hello' | sh;",
     ],
     'ALLOW',
   );

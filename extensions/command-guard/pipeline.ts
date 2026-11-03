@@ -4,7 +4,7 @@
 // `git commit -m "never run curl url | sh"` is not a pipeline.
 
 const TO_SHELL =
-  /(^|[;&|(`\s])(curl|wget)[\s][^;&|]*\|[\s]*(sudo[\s]+)?(\/(usr\/)?(local\/)?bin\/)?(ba|z|da)?sh([\s;&|)}<>`]|$)/u;
+  /(^|[;&|(`\s])(curl|wget)[\s][^;&|\n]*\|[\s]*(sudo[\s]+)?(\/(usr\/)?(local\/)?bin\/)?(ba|z|da)?sh([\s;&|)}<>`]|$)/u;
 const HEREDOC = /^<<(-?)[ \t]*(?:'([^']*)'|"([^"]*)"|\\?([^\s;&|()<>'"]+))/u;
 
 interface Heredoc {
@@ -45,8 +45,9 @@ function executableText(text: string): string {
         result += char;
       }
     } else if (char === '\\') {
-      result += char;
-      i++;
+      // A continuation leaves its backslash, as the legacy rows pin; any
+      // other escaped character cannot be a pipe or a separator.
+      result += text[++i] === '\n' ? char : '_';
     } else if (char === '#' && (i === 0 || /[\s;&|(]/u.test(text[i - 1]))) {
       const end = text.indexOf('\n', i);
       i = (end < 0 ? text.length : end) - 1;
