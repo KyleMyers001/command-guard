@@ -18,6 +18,8 @@ export interface Analysis {
   // or Git and GitHub global options, so text rules written for the plain
   // spelling (`gh pr merge`) also match `gh -R owner/repo pr merge`.
   canonical: string;
+  // The decoded text of each `sh -c` or `eval` script, at every depth.
+  scripts: string[];
   decisions: Decision[];
 }
 
@@ -164,7 +166,7 @@ function spell(word: Word): string {
 
 export function analyzeCommand(command: string, cwd: string): Analysis {
   const lines: string[] = [];
-  const {segments, decisions} = expandScripts(parseSegments(command));
+  const {segments, decisions, scripts} = expandScripts(parseSegments(command));
   let workdirs: string[] | undefined = [cwd];
 
   for (const segment of segments) {
@@ -207,5 +209,5 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
     );
   }
 
-  return {canonical: lines.join('\n'), decisions};
+  return {canonical: lines.join('\n'), scripts, decisions};
 }
