@@ -14,7 +14,7 @@
       "BashRawRegex((?m:(^|[;&|\\s])diskutil[\\s]+(erase[A-Za-z]*|partitionDisk|zeroDisk|secureErase|apfs[\\s]+(delete|erase)[A-Za-z]*)))",
       "BashRawRegex((?m:(^|[;&|\\s])sudo[\\s]+(-[a-zA-Z]+[\\s]+)*rm([\\s]|$)))",
       "BashRawRegex((?m::\\(\\)[\\s]*\\{[\\s]*:[\\s]*\\|[\\s]*:[\\s]*&[\\s]*\\}[\\s]*;[\\s]*:))",
-      "BashRawRegex((?m:(^|[;&|\\s])(curl|wget)[\\s][^;&|]*\\|[\\s]*(sudo[\\s]+)?(ba|z|da)?sh([\\s]|$)))",
+      "BashRawRegex((?m:(^|[;&|\\s])(curl|wget)[\\s][^;&|]*\\|[\\s]*(sudo[\\s]+)?(ba|z|da)?sh([\\s;&|)]|$)))",
       "BashRawRegex((?m:(^|[;&|\\s])git[\\s]+push[^;&|]*[\\s](-f|--force)([\\s]|$)))",
       "BashRawRegex((?m:(^|[;&|\\s])git[\\s]+push[^;&|]*[\\s]\\+[A-Za-z0-9._/-]))",
       "BashRawRegex((?m:(^|[;&|\\s])git[\\s]+push[^;&|]*[\\s](--delete|-d)([\\s]|$)))",
