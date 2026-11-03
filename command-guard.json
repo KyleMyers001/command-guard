@@ -127,7 +127,7 @@
       "BashRegex((^|[;&|(\\s])git(\\s+-[Cc]\\s+\\S+|\\s+--?[\\w-]+(=\\S+)?)*\\s+reflog\\s+(expire|delete)\\b)",
       "BashRegex((^|[;&|(\\s])git(\\s+-[Cc]\\s+\\S+|\\s+--?[\\w-]+(=\\S+)?)*\\s+gc\\b[^;&|\\n]*--prune)",
       "BashRegex((^|[;&|(\\s])git(\\s+-[Cc]\\s+\\S+|\\s+--?[\\w-]+(=\\S+)?)*\\s+remote\\s+(set-url|add|remove|rm|rename)\\b)",
-      "BashRegex((^|[;&|(\\s])git(\\s+-[Cc]\\s+\\S+|\\s+--?[\\w-]+(=\\S+)?)*\\s+config\\s+(?!--get|--list|-l\\b|get\\b|list\\b))",
+      "BashRegex((^|[;&|(\\s])git(\\s+-[Cc]\\s+\\S+|\\s+--?[\\w-]+(=\\S+)?)*\\s+config\\s+(?!--get|--list|-l\\b|get\\b|list\\b)(?!(?:(?:--global|--local|--system|--worktree|--show-origin|--show-scope|-z|--null)\\s+)*(?:--get(?:-all|-regexp)?\\s+[A-Za-z][\\w.*-]*|--list|-l|[A-Za-z][\\w-]*\\.[\\w.*-]+)\\s*(?=$|[;&|\\n)])))",
       "BashRegex((^|[;&|(\\s])gh\\s+pr\\s+merge\\b)",
       "BashRegex((^|[;&|(\\s])gh\\s+api\\b[^;&|\\n]*(-X|--method)[=\\s]+(?!GET\\b))",
       "BashRegex((^|[;&|(\\s])gh\\s+api(?!(?![\\s\\S]*(?i:mutation))\\s+graphql(?:\\s+(?:(?:-[fF]|--raw-field|--field)\\s+(?:query='(?!@)[^']*'|'query=(?!@)[^']*')|(?:-[fF]|--raw-field|--field)\\s+(?:[A-Za-z_]\\w*='[\\w./:{} -]*'|[A-Za-z_]\\w*=[\\w./:{}-]*|'[A-Za-z_]\\w*=[\\w./:{} -]*')|(?:--paginate|--slurp|--silent|--cache\\s+\\d+[smh]|(?:--jq|-q)\\s+(?:'[^']*'|[\\w.\\x5b\\x5d-]+))))+\\s*(?=$|[;&|\\n)]))\\b[^;&|\\n]*\\s(-f|-F|--field|--raw-field|--input)\\b)",

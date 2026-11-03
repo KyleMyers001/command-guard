@@ -74,3 +74,80 @@ test('merge hook bypass and pushes after a merge keep main verdicts', async t =>
     cwd,
   );
 });
+
+test('git config reads are allowed', async t => {
+  await expectVerdicts(
+    'ALLOW',
+    [
+      'git config user.name',
+      'git config user.email',
+      'git config remote.origin.url',
+      'git config --global user.name',
+      'git config --local core.autocrlf',
+      'git config --system --get core.editor',
+      'git config --global --get user.name',
+      'git config --local --get remote.origin.url',
+      'git config --get-all remote.origin.fetch',
+      'git config --global --get-all url.x.insteadOf',
+      'git config --show-origin --get-regexp remote',
+      'git config --global --list',
+      'git config --local --list',
+      'git config --show-origin --show-scope --list',
+      'git config -l',
+      'git config --get remote.origin.url',
+      'git config --list',
+      'git -C repo config user.name',
+      'git config user.name && git config user.email',
+      'git config',
+    ],
+    fixture(t),
+  );
+});
+
+test('git config writes and file options keep main verdicts', async t => {
+  await expectVerdicts(
+    'ASK',
+    [
+      'git config user.name Bob',
+      'git config --global user.name Bob',
+      'git config --global user.name ""',
+      'git config user.name "Bob Smith"',
+      'git config --unset user.name',
+      'git config --global --unset user.name',
+      'git config --unset-all remote.origin.fetch',
+      'git config --add remote.origin.fetch x',
+      'git config --replace-all a.b c',
+      'git config --global --remove-section user',
+      'git config --rename-section a b',
+      'git config -e',
+      'git config --global -e',
+      'git config --edit',
+      'git config --global',
+      'git config --global --get-regexp ^remote',
+      'git config -f ~/.ssh/id_rsa --list',
+      'git config --file x user.name',
+      'git config --global --file x user.name',
+      'git config --blob HEAD:x --list',
+      'git config --global user.name $NAME',
+      'git config --global user.name; git config --global user.email x@y',
+      'git config --global user.name\ngit config --global user.email x@y',
+      'git config --global alias.x "!rm -rf /"',
+      'git config --global credential.helper store',
+      'git config remote.origin.url https://evil.test/x.git',
+      'git config --global core.sshCommand "ssh -i x"',
+      'git config a.b=c',
+      'git config --global --get user.name Bob',
+    ],
+    fixture(t),
+  );
+  await expectVerdicts(
+    'DENY',
+    [
+      'git config core.hooksPath x',
+      'git config --global core.hooksPath x',
+      'git config --get core.hooksPath',
+      'git config core.hooksPath',
+    ],
+    fixture(t),
+  );
+});
