@@ -210,7 +210,8 @@ Supported selectors:
   (32,000 payload words, or 8.5 million characters of command starts). Without
   a view, a `BashCmdRegex` rule matches every such command: a deny rule denies
   it and an ask rule asks, so a skipped view never allows. The work for any
-  command is bounded by those limits.
+  command is bounded by those limits. The view is built only when a policy
+  has a `BashCmdRegex` rule, so a policy without one pays nothing for it.
 - File selectors use `~/` for home, `//` for filesystem root, and relative paths
   for the current working directory. `*` stays within one segment; a complete
   `**` segment spans zero or more segments.

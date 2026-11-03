@@ -22,9 +22,10 @@ export interface Analysis {
   canonical: string;
   decisions: Decision[];
   // One line per simple command as it would be started: see invocations.ts.
-  // Undefined when there is no view (a large or deeply nested command, or a
-  // script that cannot be read). A `BashCmdRegex` rule then matches.
-  invocations?: string[];
+  // Built on first read, so a policy with no `BashCmdRegex` rule never pays for
+  // it. Undefined when there is no view (a large or deeply nested command, or
+  // a script that cannot be read). A `BashCmdRegex` rule then matches.
+  readonly invocations?: string[];
 }
 
 const TOOLS = new Set(['git', 'gh', 'kubectl', 'helm']);
@@ -152,9 +153,18 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
     );
   }
 
+  let views: string[] | undefined;
+  let built = false;
+
   return {
     canonical: lines.join('\n'),
     decisions,
-    invocations: invocationViews(segments),
+    get invocations() {
+      if (!built) {
+        views = invocationViews(segments);
+        built = true;
+      }
+      return views;
+    },
   };
 }

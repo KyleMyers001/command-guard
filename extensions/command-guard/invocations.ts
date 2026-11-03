@@ -173,8 +173,13 @@ export function invocations(segments: Word[][]): string[] {
   return runs ? runLines(runs) : [];
 }
 
+// How many times a view was built, so a test can see that a policy without a
+// view rule builds none.
+export const viewStats = {built: 0};
+
 // Every view of the command, or undefined when there is none.
 export function invocationViews(segments: Word[][]): string[] | undefined {
+  viewStats.built++;
   const runs = runsOf(segments);
   if (!runs) return undefined;
 
