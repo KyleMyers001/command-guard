@@ -11,11 +11,12 @@ import {
   describeTimeout,
 } from '../extensions/command-guard/approval.ts';
 
-// CG-AP-001..004: approvals that lapsed at the old 120 s limit (EL-115).
+// CG-AP-001..004 and EL-117: approval expiry. The default window stays 120 s;
+// an expired or unanswered prompt blocks and tells the agent to move on.
 const repository = resolve(import.meta.dirname, '..');
 // Asks under the production policy, so the prompt path is the real one.
 const COMMAND = 'rm -rf build';
-const DEFAULT_MS = 600_000;
+const DEFAULT_MS = 120_000;
 
 function harness(
   env: NodeJS.ProcessEnv,
@@ -52,12 +53,11 @@ const lapses = (clock: {ms: number}, ms = DEFAULT_MS) => {
   return false;
 };
 
-test('default approval window is 10 minutes and the prompt says so', async () => {
+test('default approval window is 2 minutes and the prompt says so', async () => {
   const h = harness({}, () => true);
   assert.equal(await h.call(), undefined);
-  assert.equal(h.prompts[0][2].timeout, 600_000);
-  assert.match(h.prompts[0][1], /No answer within 10 minutes denies it\./);
-  assert.doesNotMatch(h.prompts[0][1], /120/);
+  assert.equal(h.prompts[0][2].timeout, 120_000);
+  assert.match(h.prompts[0][1], /No answer within 2 minutes denies it\./);
 });
 
 for (const [value, ms, text] of [
@@ -65,8 +65,10 @@ for (const [value, ms, text] of [
   ['120', 120_000, '2 minutes'],
   ['45', 45_000, '45 seconds'],
   [' 300 ', 300_000, '5 minutes'],
-  ['1', 30_000, '30 seconds'],
-  ['29', 30_000, '30 seconds'],
+  ['1', 10_000, '10 seconds'],
+  ['9', 10_000, '10 seconds'],
+  ['10', 10_000, '10 seconds'],
+  ['11', 11_000, '11 seconds'],
   ['30', 30_000, '30 seconds'],
   ['1800', 1_800_000, '30 minutes'],
   ['1801', 1_800_000, '30 minutes'],
@@ -110,35 +112,31 @@ test('unset variable uses the default and durations read naturally', () => {
   assert.equal(approvalTimeoutMs({}), DEFAULT_MS);
   assert.equal(describeTimeout(60_000), '1 minute');
   assert.equal(describeTimeout(1_800_000), '30 minutes');
-  assert.equal(describeTimeout(30_000), '30 seconds');
+  assert.equal(describeTimeout(10_000), '10 seconds');
+  assert.equal(describeTimeout(120_000), '2 minutes');
   assert.equal(describeTimeout(90_000), '90 seconds');
 });
 
-test('an expired approval blocks with a clear re-request message', async () => {
+const MOVE_ON =
+  /Not approved in time; nothing ran\. Skip it or ask the user directly/;
+const INVITES_RETRY = /re-?request|prompted again|try again|ask again/i;
+
+test('an expired approval blocks and tells the agent to move on', async () => {
   const h = harness({}, clock => lapses(clock));
   const result = await h.call();
   assert.equal(result?.block, true);
-  assert.match(result?.reason ?? '', /expired/i);
-  assert.match(result?.reason ?? '', /no answer within 10 minutes/);
-  assert.match(result?.reason ?? '', /nothing ran/);
-  assert.match(result?.reason ?? '', /re-request/i);
-  assert.doesNotMatch(result?.reason ?? '', /do not retry/i);
+  assert.match(result?.reason ?? '', MOVE_ON);
+  assert.match(result?.reason ?? '', /do not retry/i);
+  assert.doesNotMatch(result?.reason ?? '', INVITES_RETRY);
   assert.equal(h.prompts.length, 1);
 });
 
-test('expiry message follows a configured window', async () => {
+test('expiry follows a configured window', async () => {
   const env = {COMMAND_GUARD_APPROVAL_TIMEOUT_S: '60'};
   const h = harness(env, clock => lapses(clock, 60_000));
-  const result = await h.call();
-  assert.match(result?.reason ?? '', /no answer within 1 minute,/);
-});
-
-test('re-requesting after expiry prompts again and can be approved', async () => {
-  let attempt = 0;
-  const h = harness({}, clock => (++attempt === 1 ? lapses(clock) : true));
-  assert.equal((await h.call())?.block, true);
-  assert.equal(await h.call(), undefined);
-  assert.equal(h.prompts.length, 2);
+  assert.match((await h.call())?.reason ?? '', MOVE_ON);
+  const early = harness(env, clock => lapses(clock, 59_000));
+  assert.match((await early.call())?.reason ?? '', /denied/i);
 });
 
 for (const answer of [false, undefined, null, 'yes', 0]) {
@@ -157,28 +155,23 @@ test('an explicit denial keeps the usual do-not-retry message', async () => {
   assert.equal(result?.block, true);
   assert.match(result?.reason ?? '', /denied/i);
   assert.match(result?.reason ?? '', /do not retry/i);
-  assert.doesNotMatch(result?.reason ?? '', /expired/i);
+  assert.doesNotMatch(result?.reason ?? '', /Not approved in time/);
 });
 
-test('a prompt that lapses within timer jitter of the window is expiry', async () => {
-  const h = harness({}, clock => lapses(clock, DEFAULT_MS - 100));
-  assert.match((await h.call())?.reason ?? '', /expired/i);
-});
-
-test('a real "no" shortly before the deadline is not reported as expiry', async () => {
-  for (const early of [500, 1_000, 5_000]) {
+test('only a wait that used the whole window is reported as expiry', async () => {
+  for (const early of [1, 100, 1_000, 5_000]) {
     const h = harness({}, clock => lapses(clock, DEFAULT_MS - early));
     const result = await h.call();
     assert.equal(result?.block, true);
     assert.match(result?.reason ?? '', /denied/i);
-    assert.doesNotMatch(result?.reason ?? '', /expired/i);
+    assert.doesNotMatch(result?.reason ?? '', /Not approved in time/);
   }
 });
 
 // Sophie's ruling (EL-115): no late approval. A "yes" is only honoured when
 // it arrives within the window, measured on the monotonic clock.
 test('an on-time "yes" runs the command', async () => {
-  for (const ms of [0, 1_000, DEFAULT_MS - 1, DEFAULT_MS]) {
+  for (const ms of [0, 1_000, DEFAULT_MS - 1]) {
     const h = harness({}, clock => {
       clock.ms += ms;
       return true;
@@ -195,10 +188,17 @@ test('a late "yes" blocks with the expired message', async () => {
     });
     const result = await h.call();
     assert.equal(result?.block, true, `answered ${late} ms late`);
-    assert.match(result?.reason ?? '', /expired/i);
-    assert.match(result?.reason ?? '', /nothing ran/);
-    assert.match(result?.reason ?? '', /re-request/i);
+    assert.match(result?.reason ?? '', MOVE_ON);
+    assert.doesNotMatch(result?.reason ?? '', INVITES_RETRY);
   }
+});
+
+test('a "yes" exactly at the deadline is expired, not approved', async () => {
+  const h = harness({}, clock => {
+    clock.ms += DEFAULT_MS;
+    return true;
+  });
+  assert.match((await h.call())?.reason ?? '', MOVE_ON);
 });
 
 test('a late "yes" is judged against a configured window', async () => {
@@ -219,7 +219,7 @@ test('a late "no" blocks with the expired message', async () => {
   const h = harness({}, clock => lapses(clock, DEFAULT_MS + 5_000));
   const result = await h.call();
   assert.equal(result?.block, true);
-  assert.match(result?.reason ?? '', /expired/i);
+  assert.match(result?.reason ?? '', MOVE_ON);
 });
 
 test('a late "yes" on a cancelled or rewritten invocation still blocks', async () => {
@@ -228,13 +228,19 @@ test('a late "yes" on a cancelled or rewritten invocation still blocks', async (
     clock.ms += DEFAULT_MS * 2;
     return true;
   });
-  assert.equal((await cancelled.call())?.block, true);
+  const cancelledResult = await cancelled.call();
+  assert.equal(cancelledResult?.block, true);
+  assert.match(cancelledResult?.reason ?? '', /cancelled/i);
+  assert.doesNotMatch(cancelledResult?.reason ?? '', /Not approved in time/);
   const rewritten = harness({}, clock => {
     rewritten.event.input = {command: 'rm -rf elsewhere'};
     clock.ms += DEFAULT_MS * 2;
     return true;
   });
-  assert.equal((await rewritten.call())?.block, true);
+  const rewrittenResult = await rewritten.call();
+  assert.equal(rewrittenResult?.block, true);
+  assert.match(rewrittenResult?.reason ?? '', /invocation changed/);
+  assert.doesNotMatch(rewrittenResult?.reason ?? '', /Not approved in time/);
 });
 
 test('the default clock is monotonic', async () => {
@@ -269,7 +275,8 @@ test('cancellation at the deadline is cancellation, not expiry', async () => {
   });
   const result = await h.call();
   assert.equal(result?.block, true);
-  assert.doesNotMatch(result?.reason ?? '', /expired/i);
+  assert.match(result?.reason ?? '', /cancelled/i);
+  assert.doesNotMatch(result?.reason ?? '', /Not approved in time/);
 });
 
 test('a rewritten invocation is not reported as expiry', async () => {
@@ -280,17 +287,91 @@ test('a rewritten invocation is not reported as expiry', async () => {
   const result = await h.call();
   assert.equal(result?.block, true);
   assert.match(result?.reason ?? '', /invocation changed/);
-  assert.doesNotMatch(result?.reason ?? '', /expired/i);
+  assert.doesNotMatch(result?.reason ?? '', /Not approved in time/);
 });
 
-test('print and JSON modes still block asks without any window', async () => {
-  const h = harness({}, () => true);
-  const guard = createCommandGuard({env: {}});
-  const result = await guard(h.event, {
+// EL-117: the mode decides, not hasUI, so a host reporting hasUI with json or
+// print mode still gets no prompt.
+for (const mode of ['print', 'json'] as const) {
+  for (const hasUI of [false, true]) {
+    test(`${mode} mode with hasUI ${hasUI} blocks asks without prompting`, async () => {
+      const h = harness({}, () => true);
+      const guard = createCommandGuard({env: {}});
+      const result = await guard(h.event, {
+        cwd: repository,
+        hasUI,
+        mode,
+        ui: {confirm: async () => true},
+      } as unknown as ExtensionContext);
+      assert.equal(result?.block, true);
+      assert.match(result?.reason ?? '', /no approval UI/);
+      assert.equal(h.prompts.length, 0);
+    });
+  }
+}
+
+test('a clock that is not a finite number counts as expired', async () => {
+  for (const bad of [Number.NaN, Number.POSITIVE_INFINITY]) {
+    let calls = 0;
+    const guard = createCommandGuard({
+      env: {},
+      now: () => (++calls === 1 ? 0 : bad),
+    });
+    const ctx = {
+      cwd: repository,
+      hasUI: true,
+      mode: 'tui',
+      ui: {confirm: async () => true},
+    } as unknown as ExtensionContext;
+    const event = {
+      type: 'tool_call',
+      toolCallId: 'nan-clock',
+      toolName: 'bash',
+      input: {command: COMMAND},
+    } as ToolCallEvent;
+    const result = await guard(event, ctx);
+    assert.equal(result?.block, true, `clock ${bad}`);
+    assert.match(result?.reason ?? '', MOVE_ON);
+  }
+});
+
+test('the default environment is process.env', async () => {
+  const name = 'COMMAND_GUARD_APPROVAL_TIMEOUT_S';
+  const saved = process.env[name];
+  const seen: number[] = [];
+  const ctx = {
     cwd: repository,
-    hasUI: false,
-    mode: 'print',
-  } as unknown as ExtensionContext);
-  assert.equal(result?.block, true);
-  assert.equal(h.prompts.length, 0);
+    hasUI: true,
+    mode: 'tui',
+    ui: {
+      confirm: async (_t: string, _m: string, options: {timeout: number}) => {
+        seen.push(options.timeout);
+        return true;
+      },
+    },
+  } as unknown as ExtensionContext;
+  const event = {
+    type: 'tool_call',
+    toolCallId: 'process-env',
+    toolName: 'bash',
+    input: {command: COMMAND},
+  } as ToolCallEvent;
+
+  try {
+    for (const [value, ms] of [
+      ['45', 45_000],
+      ['5', 10_000],
+      ['soon', DEFAULT_MS],
+      [undefined, DEFAULT_MS],
+    ] as const) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+      // No `env` option: the guard must read the real process environment.
+      assert.equal(await createCommandGuard({})(event, ctx), undefined);
+      assert.equal(seen.at(-1), ms, `value ${String(value)}`);
+    }
+  } finally {
+    if (saved === undefined) delete process.env[name];
+    else process.env[name] = saved;
+  }
 });

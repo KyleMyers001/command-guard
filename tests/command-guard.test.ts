@@ -172,7 +172,7 @@ test('approval is once per invocation, shows cwd/rule/action and sets timeout/si
   assert.match(title + message, /Bash/);
   assert.ok(message.includes(h.cwd));
   assert.match(message, /printf harmless/);
-  assert.equal(options.timeout, 600_000);
+  assert.equal(options.timeout, 120_000);
   assert.equal(options.signal, h.ctx.signal);
 });
 
@@ -198,7 +198,7 @@ test('RPC uses native confirmation with a bounded timeout', async t => {
   const h = setup(t, {ask: ['Bash']});
   h.ctx.mode = 'rpc';
   assert.equal(await h.call(), undefined);
-  assert.equal(h.prompts[0][2].timeout, 600_000);
+  assert.equal(h.prompts[0][2].timeout, 120_000);
 });
 
 test('abort before and during approval blocks; UI failures do not leak errors', async t => {
@@ -1014,7 +1014,7 @@ test('semantic asks use the existing approval flow with a descriptive reason', a
   assert.match(h.prompts[0][1], /Reason: .*checkout/i);
   assert.match(h.prompts[0][1], /git checkout src\/index\.ts/);
   assert.match(h.prompts[1][1], /Reason: .*kubectl/i);
-  assert.equal(h.prompts[0][2].timeout, 600_000);
+  assert.equal(h.prompts[0][2].timeout, 120_000);
   const declined = setup(t, {answer: false});
   blocked(await declined.call(bash('git checkout src/index.ts')), /approval/i);
   const headless = setup(t);
