@@ -15,6 +15,7 @@ import {
   type Reading,
   type Run,
 } from './view-limits.ts';
+import {scriptsOf} from './view-scripts.ts';
 
 // The invocation view: one line per simple command, as the program would be
 // started. Shell keywords, assignments, `env` and `time` are removed, the
@@ -51,8 +52,18 @@ export function withoutKeywords(segment: Word[]): Word[] {
   const keyword = ({text, dynamic}: Word) =>
     KEYWORDS.has(text) && (!dynamic || text === '{');
 
+  // `function name {` only names the body that follows.
+  const definition = (i: number) =>
+    segment[i].text === 'function' &&
+    !segment[i].dynamic &&
+    segment[i + 2]?.text === '{';
+
   let i = 0;
-  while (i < segment.length && keyword(segment[i])) i++;
+  while (i < segment.length) {
+    if (keyword(segment[i])) i++;
+    else if (definition(i)) i += 3;
+    else break;
+  }
   return segment.slice(i);
 }
 
@@ -81,12 +92,19 @@ function collectPayload(payload: Word[], read: Reading, depth: number): void {
 }
 
 function collect(words: Word[], read: Reading, depth: number): void {
-  const {command, resolved} = unwrap(withoutKeywords(words));
+  const bare = withoutKeywords(words);
+  const {command, resolved} = unwrap(bare);
   if (command.length === 0) return;
 
   const open = !resolved || (isPrefix(command[0]) && command.length > 1);
   read.runs.push({command, open});
   if (open) chargeStarts(command, read);
+
+  // A script after a keyword was not expanded with the segments.
+  if (bare.length < words.length) {
+    if (depth >= MAX_DEPTH) throw new Skipped();
+    for (const inner of scriptsOf(bare, read)) collect(inner, read, depth + 1);
+  }
 
   // One scan from the first `find` reads every payload after it.
   const at = command.findIndex((word, i) => (open || i === 0) && isFind(word));
