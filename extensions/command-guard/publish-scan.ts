@@ -8,9 +8,13 @@ export function literal(word: Word | undefined): string {
 }
 
 // `lerna@7` and `@changesets/cli@2` name the program `lerna` and the changesets CLI.
-export function programOf(word: Word): string {
-  const name = literal(word).replace(/(?<=.)@[^/@]*$/u, '');
+export function nameOf(text: string): string {
+  const name = text.replace(/(?<=.)@[^/@]*$/u, '');
   return name === '@changesets/cli' ? 'changeset' : basename(name);
+}
+
+export function programOf(word: Word): string {
+  return nameOf(literal(word));
 }
 
 // npm accepts any unambiguous prefix of a command name: `npm pu` publishes.

@@ -1,7 +1,13 @@
 import {basename} from 'node:path';
 import type {Decision} from './commands.ts';
 import {INFO_FLAGS, SCRIPT_TAKERS, SHELL_KEYWORDS} from './publish-options.ts';
-import {isNpmPublish, isScript, programOf, tokens} from './publish-scan.ts';
+import {
+  isNpmPublish,
+  isScript,
+  nameOf,
+  programOf,
+  tokens,
+} from './publish-scan.ts';
 import {unwrap} from './scripts.ts';
 import {parseSegments, type Word} from './shell.ts';
 
@@ -31,6 +37,9 @@ const RUNNERS = new Set([
   'changeset',
   'npx',
   'pnpx',
+  'pn',
+  'pnx',
+  'yarnpkg',
 ]);
 // Levels of script in a script. Past this the command is denied, as it is
 // when it is too large to read and has a runner word and `publish` text.
@@ -61,8 +70,10 @@ function isInfoForm(words: Word[]): boolean {
   );
 }
 
-// A command too large to read in the time allowed: deny when it has a runner
-// word and any `publish` text, and allow otherwise.
+// A command too large to read in the time allowed. It is denied when its raw
+// text, quoted scripts included, has a runner name and `publish` (or, with
+// npm, a prefix of it such as `pub`) anywhere. One pass over the text, so it
+// stays linear. A script-taking word alone does not count.
 function tooLarge(words: Word[]): boolean {
   let chars = 0;
   for (const word of words) chars += word.text.length;
@@ -70,14 +81,22 @@ function tooLarge(words: Word[]): boolean {
 }
 
 function largePublishes(words: Word[]): boolean {
-  const names = words.map(runnerOf);
-  if (!names.some(Boolean)) return false;
-  const npm = names.includes('npm');
-  return words.some(word =>
-    tokens(word.text).some(
-      token => token === 'publish' || (npm && isNpmPublish(token)),
-    ),
-  );
+  let runner = false;
+  let npm = false;
+  let publish = false;
+  let prefix = false;
+
+  for (const word of words) {
+    for (const token of tokens(word.text)) {
+      const name = nameOf(token);
+      if (RUNNERS.has(name)) runner = true;
+      if (name === 'npm') npm = true;
+      if (token === 'publish') publish = true;
+      else if (isNpmPublish(token)) prefix = true;
+    }
+  }
+
+  return runner && (publish || (npm && prefix));
 }
 
 // Whether the text of a script, such as the value of `sh -c`, publishes.
@@ -104,6 +123,13 @@ function publishes(words: Word[], depth: number): boolean {
       const bare = word.text.replace(/^(?:--call=|-c=?)/u, '');
       if (scriptPublishes(word.text, depth)) return true;
       if (bare !== word.text && scriptPublishes(bare, depth)) return true;
+      // The taker joins its words, so a runner at the end of this script
+      // runs a `publish` that follows: `ssh h 'a npm' publish`.
+      for (const token of tokens(word.text)) {
+        const name = nameOf(token);
+        if (RUNNERS.has(name)) runner = true;
+        if (name === 'npm') npm = true;
+      }
     }
     if (npm && !script && isNpmPublish(word.text)) return true;
 

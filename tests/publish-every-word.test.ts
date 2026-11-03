@@ -165,13 +165,18 @@ test('round 5: help and version stay allowed where npm is the command', () => {
     assert.equal(denies(command), true, command);
 });
 
+// The fastest of three runs, so a busy CI machine does not fail the test.
 function ms(run: () => unknown): number {
-  const start = performance.now();
-  run();
-  return performance.now() - start;
+  let best = Infinity;
+  for (let i = 0; i < 3; i++) {
+    const start = performance.now();
+    run();
+    best = Math.min(best, performance.now() - start);
+  }
+  return best;
 }
 
-test('round 5: commands of every size are read in linear time', () => {
+test('round 6: commands of every size are read in linear time', () => {
   const cases = [
     `env -Z ${'flock '.repeat(6000)}`,
     `time -Z ${'flock '.repeat(3000)}`,
@@ -179,12 +184,19 @@ test('round 5: commands of every size are read in linear time', () => {
     `npm install ${'npm install '.repeat(20_000)}`,
     `npm install ${'x '.repeat(40_000)}`,
     `sh -c '${'npm install; '.repeat(5000)}'`,
+    `ssh host 'npm install${' '.repeat(40_000)}'`,
   ];
+  // These take 2-25 ms. The old cubic scan took 2-12 s, a 100x regression
+  // fails at 250 ms, and a 10x one at about the same bound.
   for (const command of cases)
     assert.ok(
-      ms(() => denies(command)) < 1000,
+      ms(() => denies(command)) < 250,
       `${command.slice(0, 30)} took too long`,
     );
+  // Four times the input takes about four times as long, not sixteen.
+  const small = ms(() => denies('flock '.repeat(10_000)));
+  const large = ms(() => denies('flock '.repeat(40_000)));
+  assert.ok(large < 10 * Math.max(small, 5), `${small} ms then ${large} ms`);
 });
 
 test('round 5: a command too large to read is denied when it has a runner word and publish text', () => {
