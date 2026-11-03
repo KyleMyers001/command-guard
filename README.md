@@ -191,18 +191,23 @@ Supported selectors:
   a complete line inside a multiline command. Regexes have no stateful `g` or
   `y` flags. Other inline modifier forms depend on native runtime support.
 - `BashRawRegex(expression)` uses exactly the same regex engine, `u` flag, and
-  modifier support as `BashRegex`, but checks **raw and canonical spellings only**,
-  never their flattened forms. It is not literal-raw-only matching. Use it when
-  whitespace/continuation provenance matters; the migrated historical denies
-  use `BashRawRegex((?m:...))` to preserve their original matching scope.
+  modifier support as `BashRegex`, but never sees flattened spellings. It
+  checks the command exactly as written plus each canonical line (one simple
+  command per line) on its own, so a gap such as `[^;&|]*` cannot run from one
+  command into the next, and a custom regex that spans lines matches only
+  within the raw text, never across canonical lines. It is not
+  literal-raw-only matching. Use it when whitespace/continuation provenance
+  matters; the migrated historical denies use `BashRawRegex((?m:...))` to
+  preserve their original matching scope.
 - File selectors use `~/` for home, `//` for filesystem root, and relative paths
   for the current working directory. `*` stays within one segment; a complete
   `**` segment spans zero or more segments.
 
 `Bash(pattern)` and `BashRegex(expression)` check raw and canonical spellings
 and their flattened forms (backslash-LF/CRLF becomes a space, then runs of spaces
-and tabs collapse). `BashRawRegex` does not add those flattened forms; canonical
-command analysis is unchanged and can itself normalize quoting and arguments.
+and tabs collapse). `BashRawRegex` checks the raw text and each canonical line
+without those flattened forms; canonical command analysis is unchanged and can
+itself normalize quoting and arguments.
 Selectors remain strings, not rule objects; there is no JSON `flatten` field or
 generic flags API.
 

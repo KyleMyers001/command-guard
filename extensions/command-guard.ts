@@ -174,8 +174,13 @@ export function createCommandGuard(options: GuardOptions = {}) {
     const analysis =
       tool === 'bash' ? analyzeCommand(target, ctx.cwd) : undefined;
     const targets = analysis
-      ? [target, analysis.canonical, ...analysis.lines]
+      ? [target, analysis.canonical]
       : inputPaths(tool, target, ctx.cwd, homeDir);
+    const texts = analysis && {
+      raw: target,
+      canonical: analysis.canonical,
+      lines: analysis.lines,
+    };
     const call: Invocation = {tool, input, target, targets};
 
     // 1. Built-in protection, before any mutable configuration is consulted.
@@ -190,7 +195,7 @@ export function createCommandGuard(options: GuardOptions = {}) {
     // a command that analysis alone would let through.
     const policy = loadPolicy(policyFile);
     const matchesCall = (rule: Rule) =>
-      matches(rule, tool, targets, ctx.cwd, homeDir);
+      matches(rule, tool, texts ?? targets, ctx.cwd, homeDir);
     const decisions = analysis?.decisions ?? [];
 
     // 3. Command-analysis and JSON denies, which no approval can override.

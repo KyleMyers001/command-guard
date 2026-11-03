@@ -6,14 +6,14 @@ import type {
   ToolCallEvent,
 } from '@earendil-works/pi-coding-agent';
 import {createCommandGuard} from '../extensions/command-guard.ts';
+import {analyzeCommand} from '../extensions/command-guard/commands.ts';
 
 // Regression cases from the 2026-11-02 false-positive register (EL-115).
 // "Must keep blocking" cases guard against any loosening of the accident rules.
 const repository = resolve(import.meta.dirname, '..');
+// Always the shipped policy, whatever COMMAND_GUARD_POLICY says.
 const guard = createCommandGuard({
-  policyPath:
-    process.env.COMMAND_GUARD_POLICY ??
-    resolve(repository, 'command-guard.json'),
+  policyPath: resolve(repository, 'command-guard.json'),
 });
 
 type Verdict = 'ALLOW' | 'ASK' | 'DENY';
@@ -72,6 +72,32 @@ test('CG-FP-001: a later command in the same script cannot supply push flags', a
     ],
     'ALLOW',
   );
+});
+
+// Newlines between `push` and a flag. Command analysis already treats an
+// unquoted newline as the end of the command (see the first assertion), but
+// the raw push rules accept a newline as the whitespace before the flag, so
+// that spelling is still denied. That is conservative, not a bug to loosen
+// here: it can only block a harmless line, never allow a real force push.
+test('a flag after a newline: analysis splits it, the raw push rule still denies', async () => {
+  const split = analyzeCommand('git push origin feat/x\n--force', repository);
+  assert.deepEqual(split.lines, ['git push origin feat/x', '--force']);
+  assert.deepEqual(split.decisions, []);
+  assert.equal(await verdict('git push origin feat/x\n--force'), 'DENY');
+});
+
+test('a newline inside quotes is part of the argument, so the flag still counts', async () => {
+  await expectAll(
+    [
+      "git push origin 'a\nb' --force",
+      'git push origin "a\nb" --force',
+      "git push origin 'a\nb' -f",
+      'git push origin feat/x \\\n--force',
+    ],
+    'DENY',
+  );
+  // The same quoted newline with no flag after it is an ordinary push.
+  assert.equal(await verdict("git push origin 'a\nb'"), 'ALLOW');
 });
 
 test('still blocks: force, delete and protected-branch pushes', async () => {

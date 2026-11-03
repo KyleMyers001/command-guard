@@ -38,19 +38,32 @@ function flattened(command: string): string {
   return command.replace(/\\\r?\n/gu, ' ').replace(/[ \t]+/gu, ' ');
 }
 
-// `commands` holds the command as written, its canonical spelling and then
-// each canonical line. Raw rules read the command and the lines (the joined
-// canonical text only when there are none); others read the first two, plain
-// and flattened.
-function bashMatches(rule: Rule, commands: string[]): boolean {
+// What a Bash rule is matched against. `raw` is the command as written,
+// `canonical` its spelling without quoting and wrappers, and `lines` the
+// canonical spelling one simple command per entry.
+export interface CommandTexts {
+  raw: string;
+  canonical: string;
+  lines: string[];
+}
+
+// Plain rules read raw and canonical text, each plain and flattened. Raw rules
+// read the raw command and each canonical line separately (the joined canonical
+// text only when there are no lines), so a regex gap such as `[^;&|]*` cannot
+// run from one command into the next; a custom raw regex that spans lines
+// will not match across commands.
+function bashMatches(rule: Rule, texts: CommandTexts): boolean {
   const {regex, pattern} = rule;
   const spellings =
     rule.flatten === false
       ? [
-          commands[0],
-          ...(commands.length > 2 ? commands.slice(2) : commands.slice(1)),
+          texts.raw,
+          ...(texts.lines.length > 0 ? texts.lines : [texts.canonical]),
         ]
-      : commands.slice(0, 2).flatMap(command => [command, flattened(command)]);
+      : [texts.raw, texts.canonical].flatMap(command => [
+          command,
+          flattened(command),
+        ]);
 
   if (regex) return spellings.some(text => regex.test(text));
   if (pattern === undefined) return true;
@@ -99,15 +112,16 @@ function appliesTo(rule: Rule, tool: GuardTool): boolean {
   return rule.tool === tool || (rule.tool === 'edit' && tool === 'write');
 }
 
+// Bash rules take the command's texts; file rules take every path spelling.
 export function matches(
   rule: Rule,
   tool: GuardTool,
-  targets: string[],
+  targets: string[] | CommandTexts,
   cwd: string,
   home: string,
 ): boolean {
   if (!appliesTo(rule, tool)) return false;
-  if (tool === 'bash') return bashMatches(rule, targets);
+  if (!Array.isArray(targets)) return bashMatches(rule, targets);
   if (rule.pattern === undefined) return true;
 
   return policyPaths(rule.pattern, cwd, home).some(pattern => {

@@ -4,6 +4,13 @@ import {fixture} from './helpers/fixtures.ts';
 import {rule} from './helpers/policy-rule.ts';
 import {matches} from '../extensions/command-guard/match.ts';
 
+// Texts for a command with no separate lines: raw rules read the canonical text.
+const texts = (raw: string, canonical: string, lines: string[] = []) => ({
+  raw,
+  canonical,
+  lines,
+});
+
 test('BashRawRegex matches raw and canonical but never flattened spellings', t => {
   const root = fixture(t);
   for (const selector of ['BashRawRegex', 'BashRegex']) {
@@ -14,7 +21,7 @@ test('BashRawRegex matches raw and canonical but never flattened spellings', t =
         matches(
           compiled,
           'bash',
-          ['printf fixture > /dev/disk9', 'printf fixture'],
+          texts('printf fixture > /dev/disk9', 'printf fixture'),
           root,
           root,
         ),
@@ -24,7 +31,7 @@ test('BashRawRegex matches raw and canonical but never flattened spellings', t =
         matches(
           compiled,
           'bash',
-          ['printf fixture >\\\n/dev/disk9', 'printf fixture'],
+          texts('printf fixture >\\\n/dev/disk9', 'printf fixture'),
           root,
           root,
         ),
@@ -37,7 +44,7 @@ test('BashRawRegex matches raw and canonical but never flattened spellings', t =
     matches(
       canonical,
       'bash',
-      ['/opt/bin/gh auth token', 'gh auth token'],
+      texts('/opt/bin/gh auth token', 'gh auth token'),
       root,
       root,
     ),
@@ -47,12 +54,36 @@ test('BashRawRegex matches raw and canonical but never flattened spellings', t =
     matches(
       rule(t, 'BashRawRegex((?im:^fixture$))'),
       'bash',
-      ['other\nFIXTURE', 'other'],
+      texts('other\nFIXTURE', 'other'),
       root,
       root,
     ),
     true,
   );
+});
+
+test('raw rules read each canonical line, never across commands', t => {
+  const root = fixture(t);
+  const lines = ['git push origin feat/x', 'rm -f y'];
+  const command = texts(
+    'git push origin feat/x\nrm -f y',
+    lines.join('\n'),
+    lines,
+  );
+  const spanning = rule(t, 'BashRawRegex(push[\\s\\S]*-f)');
+  const perLine = rule(t, 'BashRawRegex(^rm -f y$)');
+  const flattened = rule(t, 'BashRegex(push[\\s\\S]*-f)');
+  // The raw text still spans lines; the canonical lines do not.
+  assert.equal(matches(spanning, 'bash', command, root, root), true);
+  assert.equal(
+    matches(spanning, 'bash', {...command, raw: 'ls'}, root, root),
+    false,
+  );
+  assert.equal(
+    matches(perLine, 'bash', {...command, raw: 'ls'}, root, root),
+    true,
+  );
+  assert.equal(matches(flattened, 'bash', command, root, root), true);
 });
 
 test('raw selector keeps strict string syntax and sanitized regex errors', t => {
