@@ -60,17 +60,19 @@ function collectPayload(payload: Word[], read: Reading, depth: number): void {
 }
 
 function collect(words: Word[], read: Reading, depth: number): void {
-  const {command, resolved, bare, stripped} = commandOf(words);
+  const start = commandOf(words);
+  const {command, resolved} = start;
   if (command.length === 0) return;
 
   const open = !resolved || (isPrefix(command[0]) && command.length > 1);
   read.runs.push({command, open});
   if (open) chargeStarts(command, read);
 
-  // A script after a keyword was not expanded with the segments.
-  if (stripped) {
+  // A script the guard's own expansion did not reach.
+  if (start.stripped || open) {
     if (depth >= MAX_DEPTH) throw new Skipped();
-    for (const inner of scriptsOf(bare, read)) collect(inner, read, depth + 1);
+    for (const inner of scriptsOf(start, open, read))
+      collect(inner, read, depth + 1);
   }
 
   // One scan from the first `find` reads every payload after it.
