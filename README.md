@@ -225,6 +225,34 @@ against the single JSON policy. The contract contains inputs and verdicts, not
 a second regex list. Historical line numbers refer to the reviewed revision
 `53b5bdc74ec81d20a34020399fc796035911e2b3`; tests never read the retired asset.
 
+## Harmless commands that do not prompt
+
+These ask rules are narrowed so the listed forms run without a prompt. Each
+exemption is a positive grammar, so any extra option, quote, expansion, glob, or
+path outside it keeps the original ask. Denies are never narrowed.
+
+- `rm -r`/`rm -rf` of `dist`, `build`, `out`, `target`, `node_modules`, `.next`,
+  or `coverage`, given as relative paths with no `..`, quoting, glob, or trailing
+  slash (GNU `rm -rf link/` follows a symlink and empties its target). A
+  directory change anywhere earlier in the command (`cd`, `pushd`, `git -C`,
+  `env -C`) restores the ask.
+- `gh api graphql` with literal single-quoted `query=` text that does not contain
+  `mutation`, plus simple variables. `@file`, `--input`, `--hostname`, headers,
+  `-X`, and any other option still ask.
+- Local `git merge`, except with `--no-verify`, or with a global option other
+  than `-C <dir>`, `--no-pager`, `-P`, or `--no-optional-locks` (`-c`,
+  `--git-dir`, `--work-tree`, and `--exec-path` can run code or move the work
+  tree). Pushes keep their rules.
+- `git config` reads: `--get`, `--get-all`, `--get-regexp`, `--list`, `-l`, and a
+  bare `section.key`, with optional `--global`, `--local`, `--system`,
+  `--worktree`, `--show-origin`, `--show-scope`. Writes, `-f`, and `-e` ask.
+- `curl -o`/`--output` of a plain `http(s)` URL to a relative path in the repo or
+  a path under `/tmp`, as the last command. Dotfile paths, `..`, upload and
+  config options, `-O`, and any command after the download still ask.
+- `npm`/`pnpm`/`yarn`/`bun` scripts named `test:`, `lint:`, or `check:` plus
+  `migrate`, `migration`, or `migrations`, run as the start of a command with no
+  arguments. Scripts that may apply a migration still ask.
+
 ## Command analysis
 
 Some decisions depend on decoded arguments rather than text patterns. The guard
@@ -235,6 +263,9 @@ uses a bounded shell decoder; it is not a shell interpreter.
   updates, implicit destinations, computed arguments, and unknown options deny.
 - `git checkout` asks when it may overwrite files. Ordinary branch switching and
   branch creation remain allowed when the working directory can be established.
+  `git checkout --detach <commit>` does not ask for a literal operand when the
+  directory is known: Git refuses `--detach` with a path. `-f`, `--`, other
+  options, computed operands, and an unknown `-C`/`--work-tree` ask.
 - `git restore` asks whenever it may touch the working tree. A fully understood
   staged-only restore proceeds.
 - Literal command strings passed to supported shells or `eval` are recursively
