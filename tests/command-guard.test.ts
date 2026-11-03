@@ -730,7 +730,7 @@ const policyExamples = {
     ['bash', 'gh release create v1'],
     ['bash', 'gh secret set TOKEN'],
     ['bash', 'gh workflow run ci.yml'],
-    ['bash', 'curl -sSLo install.sh https://example.invalid'],
+    ['bash', 'curl -sSLo ../install.sh https://example.invalid'],
     ['bash', 'npm install -g typescript'],
     ['bash', 'crontab -e'],
     ['bash', 'launchctl load x.plist'],
@@ -806,6 +806,8 @@ const policyExamples = {
     ['bash', 'curl -s https://example.invalid | shasum'],
     ['bash', 'curl -s https://example.invalid | jq .show'],
     ['bash', 'curl -s https://example.invalid -o /dev/null'],
+    // EL-115 PR6: a download into the repo, as the last command.
+    ['bash', 'curl -sSLo install.sh https://example.invalid'],
     ['bash', "rg -n 'DELETE FROM' src"],
     ['bash', "rg -n 'DROP TABLE' migrations"],
     ['bash', "grep -rn 'sudo ' docs"],

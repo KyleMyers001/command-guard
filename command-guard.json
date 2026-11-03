@@ -135,7 +135,7 @@
       "BashRegex((^|[;&|(\\s])gh\\s+(secret|variable)\\s+(set|delete)\\b)",
       "BashRegex((^|[;&|(\\s])gh\\s+repo\\s+(create|edit|rename|archive)\\b)",
       "BashRegex((^|[;&|(\\s])gh\\s+workflow\\s+(run|enable|disable)\\b)",
-      "BashRegex((^|[;&|(\\s])curl\\b[^;&|\\n]*\\s(-[a-zA-Z]*o|--output)[=\\s]+(?!/dev/null))",
+      "BashRegex((^|[;&|(\\s])curl(?!(?<![\\s\\S]*(?:(?<![\\w./-])(?:cd|pushd|popd|chdir|chroot)(?![\\w.-])|\\s-C(?![\\w-])|--chdir)[\\s\\S]*)(?:\\s+(?:(?:-[sSLf]+|--(?:silent|show-error|location|fail|fail-with-body|compressed)|--retry\\s+\\d+|(?:--max-time|-m|--connect-timeout)\\s+\\d+)|(?:-[sSLf]*o\\s+|--output(?:\\s+|=))(?!\\S*command-guard)(?:/tmp/|(?:\\./)?)(?:[\\w@%+=,][\\w.@%+=,~-]*/)*[\\w@%+=,][\\w.@%+=,~-]*|(?:https?://[\\w.~:/?#%=+@,-]+|'https?://[^'\\s$\\x60\\\\]*'|\"https?://[^\"\\s$\\x60\\\\]*\")))+\\s*$)\\b[^;&|\\n]*\\s(-[a-zA-Z]*o|--output)[=\\s]+(?!/dev/null))",
       "BashRegex((^|[;&|(\\s])curl\\b[^;&|\\n]*\\s(-[a-zA-Z]*O|--remote-name)\\b)",
       "BashRegex((^|[;&|(\\s])npm\\s+(install|i|add)\\b[^;&|\\n]*\\s(-g|--global)\\b)",
       "BashRegex((^|[;&|(\\s])pip3?\\s+install\\b[^;&|\\n]*--break-system-packages)",
