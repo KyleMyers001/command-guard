@@ -91,6 +91,27 @@ test('a rule is evaluated once for no view, whatever its size', () => {
   }
 });
 
+test('a long sequence keeps its first 32 words and takes under a second', () => {
+  const n = 50_000;
+  const named = (i: number) => `a${i}`;
+  const sources = {
+    'a0.a1.… with a wildcard between': `^${Array.from({length: n}, (_, i) => named(i)).join('.')}`,
+    'single-alternative groups': `^${Array.from({length: n}, (_, i) => `(${named(i)})`).join('')}`,
+    'non-capturing groups': `^${Array.from({length: n}, (_, i) => `(?:${named(i)})`).join(' ')}`,
+  };
+  const first = Array.from({length: 32}, (_, i) => named(i));
+  for (const [name, source] of Object.entries(sources)) {
+    const start = performance.now();
+    const triggers = regexTriggers(source);
+    const elapsed = performance.now() - start;
+    assert.ok(elapsed < 1000, `${name}: ${elapsed.toFixed(0)}ms`);
+    // Fewer required words only widens the match, so the rest are left out.
+    // Each space between groups is a part of its own: 32 parts, 16 words.
+    const kept = name === 'non-capturing groups' ? 16 : 32;
+    assert.deepEqual(triggers, [first.slice(0, kept)], name);
+  }
+});
+
 test('a rule with too many alternatives matches any command with no view', t => {
   const source = `^${Array.from({length: 50_000}, (_, i) => `pnpm -r p${i}`).join('|^')}`;
   const start = performance.now();

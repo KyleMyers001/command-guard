@@ -13,12 +13,14 @@
 type Terms = string[][] | undefined;
 
 const MAX_TERMS = 32;
-// The characters `spell` leaves unquoted; a quoted word may hold others.
+// What `spell` leaves unquoted; a quoted word may hold others.
 const WORD_BREAK = /[^A-Za-z0-9_@%+=:,./~^-]+/u;
 
 function both(left: Terms, right: Terms): Terms {
   if (!left) return right;
+  // Past 32 parts an alternative is done; later parts only widen the match.
   if (!right || left.length * right.length > MAX_TERMS) return left;
+  if (left.some(a => a.length >= MAX_TERMS)) return left;
   return left.flatMap(a => right.map(b => [...a, ...b]));
 }
 
@@ -37,7 +39,6 @@ class Reader {
     let known = true;
     for (;;) {
       const branch = this.sequence();
-      // Past the limit nothing more is kept: the rest is only read through.
       if (known && branch && all.length + branch.length <= MAX_TERMS)
         all.push(...branch);
       else known = false;
@@ -98,8 +99,7 @@ class Reader {
     return terms;
   }
 
-  // Matches a sticky `pattern` at the current position, without copying the
-  // rest of the source.
+  // Matches a sticky `pattern` here, without copying the rest of the source.
   private read(pattern: RegExp): RegExpExecArray | null {
     pattern.lastIndex = this.at;
     return pattern.exec(this.source);
@@ -146,8 +146,7 @@ class Reader {
   }
 }
 
-// The words of one alternative, as written: they are matched with the case
-// folding of the rule's own regex.
+// The words of one alternative, as written (matched with the rule's case).
 function wordsOf(runs: string[]): string[] | undefined {
   const words = runs
     .flatMap(run => run.split(WORD_BREAK))
@@ -155,8 +154,8 @@ function wordsOf(runs: string[]): string[] | undefined {
   return words.length > 0 ? [...new Set(words)] : undefined;
 }
 
-// The alternatives a command must satisfy, one of them in full, to trigger the
-// rule; undefined if there are none to derive.
+// The alternatives, one of which a command must satisfy in full to trigger
+// the rule; undefined if there are none to derive.
 export function regexTriggers(source: string): string[][] | undefined {
   try {
     const reader = new Reader(source);
@@ -191,10 +190,7 @@ function escaped(word: string): string {
 export function textVariants(commands: string[]): string[] {
   return commands.flatMap(command => [
     command,
-    command
-      .replace(/\\\r?\n/gu, '')
-      .replace(/\$(?=['"])/gu, '')
-      .replace(/['"\\`]/gu, ''),
+    command.replace(/\\\r?\n/gu, '').replace(/['"\\`]/gu, ''),
   ]);
 }
 
