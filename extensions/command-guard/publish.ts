@@ -4,6 +4,7 @@ import {
   INFO_FLAGS,
   KEEPS_COMMAND,
   OPTIONED_WRAPPERS,
+  SHELL_KEYWORDS,
 } from './publish-options.ts';
 import {
   isNpmPublish,
@@ -61,7 +62,7 @@ function publishes(name: string, args: Word[], depth: number): boolean {
     return false;
 
   return args.some((word, i) => {
-    if (word.dynamic) return false;
+    // A dynamic word keeps its literal text, so `"lerna publish $F"` is read.
     if (tokens(word.text).includes('publish')) return true;
     // `--call=script` and `-cscript` carry the script after the option.
     if (isScript(word))
@@ -75,16 +76,21 @@ function publishes(name: string, args: Word[], depth: number): boolean {
 }
 
 // Words that may start a command, after wrappers that leave it in place.
-function commandStarts(words: Word[]): number[] {
+// `wrapped` is set when the command is a wrapper's argument, where a word may
+// also be a whole script (`script -c 'npm publish'`).
+function commandStarts(words: Word[]): {starts: number[]; wrapped: boolean} {
   const starts: number[] = [];
+  let wrapped = false;
 
   for (let i = 0; i < words.length;) {
     const name = basename(literal(words[i]));
-    if (KEEPS_COMMAND.has(name) || name === 'corepack') {
+    if (SHELL_KEYWORDS.has(words[i].text)) i++;
+    else if (KEEPS_COMMAND.has(name) || name === 'corepack') {
       i++;
       while (words[i]?.text.startsWith('-')) i++;
     } else if (OPTIONED_WRAPPERS.has(name)) {
       for (let j = i + 1; j < words.length; j++) starts.push(j);
+      wrapped = true;
       break;
     } else {
       starts.push(i);
@@ -92,17 +98,21 @@ function commandStarts(words: Word[]): number[] {
     }
   }
 
-  return starts;
+  return {starts, wrapped};
 }
 
 function nested(words: Word[], depth: number): boolean {
-  return commandStarts(words).some(i =>
-    publishes(basename(literal(words[i])), words.slice(i + 1), depth),
+  const {starts, wrapped} = commandStarts(words);
+  return starts.some(
+    i =>
+      publishes(basename(literal(words[i])), words.slice(i + 1), depth) ||
+      (wrapped && isScript(words[i]) && scriptPublishes(words[i].text, depth)),
   );
 }
 
 function classify(segment: Word[], depth: number): Decision[] {
-  const {command, resolved} = unwrap(segment);
+  const first = segment.findIndex(word => !SHELL_KEYWORDS.has(word.text));
+  const {command, resolved} = unwrap(first < 0 ? [] : segment.slice(first));
   const found = resolved
     ? nested(command, depth)
     : command.some((_, i) => nested(command.slice(i), depth));

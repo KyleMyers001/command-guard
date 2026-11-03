@@ -253,6 +253,11 @@ test('leaves everything that is not a publish alone', () => {
     'grep -r "yarn publish" .',
     'man npm-publish',
     'ls npm publish',
+    'if true; then echo npm publish; fi',
+    'exec echo ok',
+    'find . -name publish',
+    'flock /tmp/lock git status',
+    'rg publish docs',
   ]) {
     assert.equal(classifierDenies(command), false, command);
   }
