@@ -54,6 +54,12 @@ test('shell strings contribute their own commands, and Git globals are dropped',
   assert.ok(found.includes('git push --force'));
   assert.ok(found.includes('cd x'));
   assert.ok(found.some(view => view.startsWith('bash -c')));
+
+  // A tool named only as an argument is not an invocation.
+  const mention = analyzeCommand('echo git status', process.cwd()).invocations;
+  assert.deepEqual(mention, ['echo git status']);
+  const wrapped = analyzeCommand('FOO=1 git -C r status', process.cwd());
+  assert.ok(wrapped.invocations.includes('git status'));
 });
 
 test('a very long command keeps the work bounded', () => {
