@@ -170,3 +170,15 @@ export function hasTriggers(text: string, triggers: string[][]): boolean {
   const lower = text.toLowerCase();
   return triggers.some(words => words.every(word => lower.includes(word)));
 }
+
+// The command's text, then as the shell reads it once quotes and backslashes
+// are gone: `pn''pm` is `pnpm`, also inside a script that is only a string.
+export function textVariants(commands: string[]): string[] {
+  return commands.flatMap(command => [
+    command,
+    command
+      .replace(/\\\r?\n/gu, '')
+      .replace(/\$(?=['"])/gu, '')
+      .replace(/['"\\`]/gu, ''),
+  ]);
+}

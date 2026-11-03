@@ -216,8 +216,10 @@ Supported selectors:
   words, or 8.5 million characters of command starts). Without a view, a
   `BashCmdRegex` rule applies to a command that holds its _trigger words_, the
   literal words every match of its expression needs (`pnpm`, `-r` and
-  `publish` for `^pnpm -r publish`), found in the command as written or in its
-  canonical spelling, in any case: a deny rule denies it and an ask rule asks.
+  `publish` for `^pnpm -r publish`), found in the command as written, in its
+  canonical spelling, or with its quotes and backslashes removed (so `pn''pm`
+  inside a script string is `pnpm`), in any case: a deny rule denies it and an
+  ask rule asks.
   A command without them is not blocked by the rule, so a long `git commit -m`
   is not caught by a publish rule. An expression with no such words (`^x`, or
   alternatives that share none) applies to every command with no view, so a

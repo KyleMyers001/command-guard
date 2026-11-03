@@ -1,7 +1,7 @@
 import {join, resolve} from 'node:path';
 import {canonicalPath} from './paths.ts';
 import type {GuardTool, Rule} from './policy.ts';
-import {hasTriggers} from './triggers.ts';
+import {hasTriggers, textVariants} from './triggers.ts';
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
@@ -54,7 +54,8 @@ function bashMatches(
     // matches, so a deny denies and an ask asks; with no trigger words to go
     // by, any such command does. Otherwise it is read as text, like BashRegex.
     const {triggers} = rule;
-    if (!triggers || hasTriggers(commands.join('\n'), triggers)) return true;
+    if (!triggers || hasTriggers(textVariants(commands).join('\n'), triggers))
+      return true;
   }
   const spellings =
     rule.flatten === false
