@@ -33,16 +33,18 @@ class Reader {
 
   // Alternatives up to the closing `)` (not consumed) or the end.
   alternation(): Terms {
-    let all: string[][] = [];
+    const all: string[][] = [];
     let known = true;
     for (;;) {
       const branch = this.sequence();
-      if (branch) all = all.concat(branch);
+      // Past the limit nothing more is kept: the rest is only read through.
+      if (known && branch && all.length + branch.length <= MAX_TERMS)
+        all.push(...branch);
       else known = false;
       if (this.source[this.at] !== '|') break;
       this.at++;
     }
-    return known && all.length <= MAX_TERMS ? all : undefined;
+    return known ? all : undefined;
   }
 
   private sequence(): Terms {
@@ -96,10 +98,16 @@ class Reader {
     return terms;
   }
 
+  // Matches a sticky `pattern` at the current position, without copying the
+  // rest of the source.
+  private read(pattern: RegExp): RegExpExecArray | null {
+    pattern.lastIndex = this.at;
+    return pattern.exec(this.source);
+  }
+
   // Consumes a quantifier; true if there was one.
   private quantifier(): boolean {
-    const rest = this.source.slice(this.at);
-    const found = /^(?:[*+?]|\{(\d+)(?:,\d*)?\})\??/u.exec(rest);
+    const found = this.read(/(?:[*+?]|\{(\d+)(?:,\d*)?\})\??/uy);
     if (!found) return false;
     this.at += found[0].length;
     this.min = found[0][0] === '+' ? 1 : Number(found[1] ?? 0);
@@ -109,15 +117,15 @@ class Reader {
   // The rest of `\x41`, `\u0041`, `\u{41}`, `\p{Lu}`, `\k<name>`, `\cJ`, `\12`.
   private skipEscape(kind: string): void {
     const patterns: Record<string, RegExp> = {
-      x: /^[0-9a-fA-F]{2}/u,
-      u: /^(?:[0-9a-fA-F]{4}|\{[0-9a-fA-F]+\})/u,
-      p: /^\{[^}]*\}/u,
-      P: /^\{[^}]*\}/u,
-      k: /^<[^>]*>/u,
-      c: /^[A-Za-z]/u,
+      x: /[0-9a-fA-F]{2}/uy,
+      u: /(?:[0-9a-fA-F]{4}|\{[0-9a-fA-F]+\})/uy,
+      p: /\{[^}]*\}/uy,
+      P: /\{[^}]*\}/uy,
+      k: /<[^>]*>/uy,
+      c: /[A-Za-z]/uy,
     };
-    const pattern = /\d/u.test(kind) ? /^\d*/u : patterns[kind];
-    this.at += pattern?.exec(this.source.slice(this.at))?.[0].length ?? 0;
+    const pattern = /\d/u.test(kind) ? /\d*/uy : patterns[kind];
+    this.at += (pattern && this.read(pattern))?.[0].length ?? 0;
   }
 
   private skipClass(): void {
@@ -129,9 +137,7 @@ class Reader {
   }
 
   private group(): Terms {
-    const head = /^\?(?:(<?[=!])|<[^>]*>|[a-z-]*:)?/u.exec(
-      this.source.slice(this.at),
-    );
+    const head = this.read(/\?(?:(<?[=!])|<[^>]*>|[a-z-]*:)?/uy);
     const lookaround = Boolean(head?.[1]);
     this.at += head?.[0].length ?? 0;
     const inner = this.alternation();

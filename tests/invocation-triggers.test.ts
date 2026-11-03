@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {analyzeCommand} from '../extensions/command-guard/commands.ts';
-import {triggerMatchers} from '../extensions/command-guard/triggers.ts';
+import {matches} from '../extensions/command-guard/match.ts';
+import {
+  regexTriggers,
+  triggerMatchers,
+} from '../extensions/command-guard/triggers.ts';
 import {decide} from './helpers/decide.ts';
 import {padding} from './helpers/obfuscation.ts';
+import {rule} from './helpers/policy-rule.ts';
 
 // EL-115, PR 4, fix: trigger words follow the rule's own case folding, the
 // derivation is linear in the size of the expression, and its limits hold.
@@ -60,4 +65,46 @@ test('matchers fold case as the expression does', () => {
   // Words with regex syntax in them are matched as text.
   assert.ok(triggerMatchers('^a\\.b\\+c d')?.[0][0].test('xa.b+c'));
   assert.ok(!triggerMatchers('^a\\.b\\+c d')?.[0][0].test('xaXb+c'));
+});
+
+test('a rule is evaluated once for no view, whatever its size', () => {
+  const alternatives = (n: number, prefix = '') =>
+    Array.from({length: n}, (_, i) => `${prefix}pnpm -r p${i}`).join('|');
+  for (const [count, limit] of [
+    [50_000, 1500],
+    [200_000, 3000],
+  ]) {
+    const top = `^${alternatives(count, '^')}`.replace('^^', '^');
+    const grouped = `^pnpm (?:${alternatives(count).replaceAll('pnpm -r ', 'w')}) publish`;
+    for (const source of [top, grouped]) {
+      const start = performance.now();
+      const triggers = regexTriggers(source);
+      const elapsed = performance.now() - start;
+      assert.ok(elapsed < limit, `${count}: ${elapsed.toFixed(0)}ms`);
+      // Too many alternatives name nothing: fail closed. A group of them is
+      // left out and the rest of the expression still names its words.
+      assert.deepEqual(
+        triggers,
+        source === top ? undefined : [['pnpm', 'publish']],
+      );
+    }
+  }
+});
+
+test('a rule with too many alternatives matches any command with no view', t => {
+  const source = `^${Array.from({length: 50_000}, (_, i) => `pnpm -r p${i}`).join('|^')}`;
+  const start = performance.now();
+  const compiled = rule(t, `BashCmdRegex(${source})`);
+  assert.ok(performance.now() - start < 3000);
+  assert.equal(compiled.triggers, undefined);
+  assert.equal(matches(compiled, 'bash', ['echo hi'], cwd, cwd), true);
+  assert.equal(
+    matches(compiled, 'bash', ['echo hi'], cwd, cwd, ['echo hi']),
+    false,
+  );
+});
+
+test('a deep or malformed expression fails closed', () => {
+  assert.equal(regexTriggers(`${'('.repeat(200_000)}pnpm publish`), undefined);
+  assert.equal(regexTriggers('^(pnpm publish'), undefined);
 });

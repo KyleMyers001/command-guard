@@ -223,7 +223,7 @@ Supported selectors:
   ask rule asks.
   A command without them is not blocked by the rule, so a long `git commit -m`
   is not caught by a publish rule. An expression with no such words (`^x`, or
-  alternatives that share none) applies to every command with no view, so a
+  alternatives that share none, or more than 32 of them) applies to every command with no view, so a
   skipped view never allows what the rule could match. The work for any command
   is bounded by those limits.
 - File selectors use `~/` for home, `//` for filesystem root, and relative paths
