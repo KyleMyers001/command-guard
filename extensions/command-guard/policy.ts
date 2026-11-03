@@ -10,8 +10,8 @@ export interface Rule {
   pattern?: string;
   // Set for either regex selector; `pattern` then holds the regex source.
   regex?: RegExp;
-  // Raw selectors read the command as written and each canonical line on its
-  // own, never flattened text; a custom regex cannot match across commands.
+  // Raw selectors read the command as written, the canonical text and each
+  // canonical line on its own, never flattened text.
   flatten?: false;
 }
 

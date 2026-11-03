@@ -48,18 +48,16 @@ export interface CommandTexts {
 }
 
 // Plain rules read raw and canonical text, each plain and flattened. Raw rules
-// read the raw command and each canonical line separately (the joined canonical
-// text only when there are no lines), so a regex gap such as `[^;&|]*` cannot
-// run from one command into the next; a custom raw regex that spans lines
-// will not match across commands.
+// read the raw command, the canonical text and each canonical line on their
+// own, never flattened text. The lines keep a regex gap such as `[^;&|]*` from
+// running from one command into the next; the raw and joined texts keep every
+// rule seeing what it saw before lines existed. A custom raw regex that spans
+// lines can still match inside the raw or joined text.
 function bashMatches(rule: Rule, texts: CommandTexts): boolean {
   const {regex, pattern} = rule;
   const spellings =
     rule.flatten === false
-      ? [
-          texts.raw,
-          ...(texts.lines.length > 0 ? texts.lines : [texts.canonical]),
-        ]
+      ? [texts.raw, texts.canonical, ...texts.lines]
       : [texts.raw, texts.canonical].flatMap(command => [
           command,
           flattened(command),

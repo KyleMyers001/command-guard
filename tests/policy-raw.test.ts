@@ -62,28 +62,40 @@ test('BashRawRegex matches raw and canonical but never flattened spellings', t =
   );
 });
 
-test('raw rules read each canonical line, never across commands', t => {
+test('raw rules read the raw text, the canonical text and each line', t => {
   const root = fixture(t);
   const lines = ['git push origin feat/x', 'rm -f y'];
   const command = texts(
-    'git push origin feat/x\nrm -f y',
+    'git push origin feat/x && rm -f y',
     lines.join('\n'),
     lines,
   );
-  const spanning = rule(t, 'BashRawRegex(push[\\s\\S]*-f)');
-  const perLine = rule(t, 'BashRawRegex(^rm -f y$)');
-  const flattened = rule(t, 'BashRegex(push[\\s\\S]*-f)');
-  // The raw text still spans lines; the canonical lines do not.
-  assert.equal(matches(spanning, 'bash', command, root, root), true);
+  const hit = (selector: string, over: Partial<typeof command> = {}) =>
+    matches(rule(t, selector), 'bash', {...command, ...over}, root, root);
+
+  // Each line on its own, so a line anchor works without the raw text.
+  assert.equal(hit('BashRawRegex(^rm -f y$)'), true);
+  // The joined canonical text still spans lines, as it did before lines existed.
+  assert.equal(hit('BashRawRegex(push[\\s\\S]*-f)', {raw: 'ls'}), true);
+  // The raw text is read as written.
+  assert.equal(hit('BashRawRegex(&& rm)'), true);
+  // Flattened spellings stay out of raw rules, and are in for plain regexes.
+  const continued = {
+    raw: 'rm \\\n-f y',
+    canonical: 'rm -f y',
+    lines: ['rm -f y'],
+  };
+  assert.equal(hit('BashRawRegex(^rm -f y$)', {raw: continued.raw}), true);
   assert.equal(
-    matches(spanning, 'bash', {...command, raw: 'ls'}, root, root),
+    hit('BashRawRegex(rm -f)', {raw: 'x', canonical: 'rm \\\n-f', lines: []}),
     false,
   );
   assert.equal(
-    matches(perLine, 'bash', {...command, raw: 'ls'}, root, root),
+    hit('BashRegex(rm -f)', {raw: 'x', canonical: 'rm \\\n-f', lines: []}),
     true,
   );
-  assert.equal(matches(flattened, 'bash', command, root, root), true);
+  // Nothing to match: no line, canonical or raw text contains it.
+  assert.equal(hit('BashRawRegex(absent)'), false);
 });
 
 test('raw selector keeps strict string syntax and sanitized regex errors', t => {

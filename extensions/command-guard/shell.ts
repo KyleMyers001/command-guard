@@ -115,6 +115,16 @@ function scanCommands(
       let operator = '';
       while (i < text.length && '<>&|'.includes(text[i])) operator += text[i++];
 
+      // `>(...)` and `<(...)` hand the outer command a pipe. The body is a
+      // segment of its own; the pipe is a file name the outer command's own
+      // arguments never depend on, so it is left out and the outer command
+      // carries on after it as if it were not there.
+      if ((operator === '<' || operator === '>') && text[i] === '(') {
+        i = scanCommands(text, i + 1, ')', out, depth + 1);
+        redirect = 'none';
+        continue;
+      }
+
       const isHeredoc = operator === '<<';
       stripTabs = isHeredoc && text[i] === '-';
       if (stripTabs) i++;

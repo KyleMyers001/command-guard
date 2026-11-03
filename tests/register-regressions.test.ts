@@ -7,6 +7,7 @@ import type {
 } from '@earendil-works/pi-coding-agent';
 import {createCommandGuard} from '../extensions/command-guard.ts';
 import {analyzeCommand} from '../extensions/command-guard/commands.ts';
+import {parseSegments} from '../extensions/command-guard/shell.ts';
 
 // Regression cases from the 2026-11-02 false-positive register (EL-115).
 // "Must keep blocking" cases guard against any loosening of the accident rules.
@@ -67,8 +68,6 @@ test('CG-FP-001: a later command in the same script cannot supply push flags', a
       'git push -u origin feat/x\ngit branch -d old',
       'git push -u origin feat/x\r\nrm -f /tmp/x',
       'git push -u origin feat/x; ls -d */',
-      "dd if=a of=b && printf 'of=/dev/null'",
-      "git gc --aggressive && echo '--prune=now'",
     ],
     'ALLOW',
   );
@@ -98,6 +97,87 @@ test('a newline inside quotes is part of the argument, so the flag still counts'
   );
   // The same quoted newline with no flag after it is an ordinary push.
   assert.equal(await verdict("git push origin 'a\nb'"), 'ALLOW');
+});
+
+// Not in the register: the other raw rules read the joined canonical text, as
+// they did before this PR, so their gaps still run across commands. These
+// stay as strict as main.
+test('unchanged from main: non-push raw rules still cross commands', async () => {
+  await expectAll(
+    [
+      "dd if=a of=b && printf 'of=/dev/null'",
+      "git gc --aggressive && echo '--prune=now'",
+    ],
+    'DENY',
+  );
+});
+
+// CR on #10: `>(...)` and `<(...)` used to split the outer command, so words
+// after them (the push flags) landed on a line of their own.
+const PROCESS_SUBSTITUTION_DENIES = [
+  '/usr/bin/git push origin feat/x 2> >(cat) --force',
+  '/usr/bin/git push origin feat/x 2> >(cat) -f',
+  '/usr/bin/git push origin feat/x > >(cat) --force',
+  '/usr/bin/git push origin feat/x > >(cat) -f',
+  '/usr/bin/git push origin feat/x <(cat) --force',
+  '/usr/bin/git push origin feat/x <(cat) -f',
+  '"git" push origin feat/x 2> >(cat) --force',
+  'git -C /tmp push origin feat/x 2> >(cat) --force',
+  'git push origin feat/x 2> >(cat) main',
+  'git push origin feat/x >(cat) --delete',
+  '/usr/bin/gh api repos/o/r 2> >(cat) -X DELETE',
+  "bash -c 'dd if=fixture 2> >(cat) of=/dev/disk9'",
+  "bash -c 'git gc > >(cat) --prune=now'",
+  "bash -c 'chmod 2> >(cat) 777 /'",
+  "bash -c 'git push origin feat/x 2> >(cat) --force'",
+  'git push origin feat/x 2> >(git push -f origin x)',
+];
+
+test('still blocks: flags after a process substitution', async () => {
+  await expectAll(PROCESS_SUBSTITUTION_DENIES, 'DENY');
+});
+
+test('command analysis alone sees push flags after a process substitution', () => {
+  for (const command of PROCESS_SUBSTITUTION_DENIES.filter(
+    c => c.includes('push') && !c.startsWith('bash'),
+  )) {
+    const {decisions, lines} = analyzeCommand(command, repository);
+    assert.ok(
+      decisions.some(d => d.verdict === 'deny'),
+      command,
+    );
+    assert.ok(
+      lines.some(line => /^git push\b.*(--force|-f|main|--delete)/u.test(line)),
+      command,
+    );
+  }
+});
+
+test('a process substitution keeps the outer command in one segment', () => {
+  const {lines} = analyzeCommand(
+    'git push origin feat/x 2> >(cat) --force',
+    repository,
+  );
+  assert.deepEqual(lines, ['cat', 'git push origin feat/x --force']);
+  assert.deepEqual(
+    parseSegments('diff <(sort a) <(sort b) -u').map(s => s.map(w => w.text)),
+    [
+      ['sort', 'a'],
+      ['sort', 'b'],
+      ['diff', '-u'],
+    ],
+  );
+});
+
+test('ordinary process substitutions are allowed', async () => {
+  await expectAll(
+    [
+      'git push origin feat/x 2> >(cat)',
+      'echo hi > >(tee out.log) && ls',
+      'diff <(sort a.txt) <(sort b.txt)',
+    ],
+    'ALLOW',
+  );
 });
 
 test('still blocks: force, delete and protected-branch pushes', async () => {
