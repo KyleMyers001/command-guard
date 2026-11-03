@@ -681,7 +681,7 @@ const policyExamples = {
     ['bash', 'ls | xargs rm'],
     ['bash', 'git commit --amend --no-edit'],
     ['bash', 'git commit -m x --no-verify'],
-    ['bash', 'git merge feat/x'],
+    ['bash', 'git merge --no-verify feat/x'],
     ['bash', 'git rebase origin/main'],
     ['bash', 'git checkout -- file.ts'],
     ['bash', 'git checkout .'],
@@ -764,6 +764,8 @@ const policyExamples = {
     ['bash', 'git pull --rebase'],
     ['bash', 'git rebase --continue'],
     ['bash', 'git merge --abort'],
+    // EL-115 PR6: a local merge only moves the current branch.
+    ['bash', 'git merge feat/x'],
     ['bash', 'git merge-base HEAD main'],
     ['bash', 'git log --merges'],
     ['bash', 'git config --get remote.origin.url'],
