@@ -1,30 +1,19 @@
 import {basename} from 'node:path';
 import type {Decision} from './commands.ts';
-import {
-  INFO_FLAGS,
-  KEEPS_COMMAND,
-  OPTIONED_WRAPPERS,
-  SHELL_KEYWORDS,
-} from './publish-options.ts';
-import {
-  isNpmPublish,
-  isScript,
-  literal,
-  programOf,
-  tokens,
-} from './publish-scan.ts';
-import {expandScripts, unwrap} from './scripts.ts';
+import {INFO_FLAGS, SCRIPT_TAKERS, SHELL_KEYWORDS} from './publish-options.ts';
+import {isNpmPublish, isScript, programOf, tokens} from './publish-scan.ts';
+import {unwrap} from './scripts.ts';
 import {parseSegments, type Word} from './shell.ts';
 
 // Package publishing is hard to undo, so it is always denied. The rule is
-// deliberately blunt and does not read option grammar: when a command runs
-// npm, pnpm, yarn, npx, lerna or changesets, any word of it that is `publish`,
-// or any word inside a script string it carries (`npx -c`, `yarn exec`), is
-// a publish, whatever the options. That denies a few commands that only
-// mention publish (`npm install publish`); publishing is rare. Only help
-// and version output is left alone (`npm help publish`, `npm -h publish`).
-// A command that merely has these words in another tool's arguments
-// (`rg 'npm publish'`) is not an invocation of these tools.
+// blunt and reads neither option grammar nor wrappers: when a segment has an
+// npm, pnpm, yarn, npx, lerna or changesets word (also `name@version` or a
+// path), any later word that is `publish` (or an npm prefix such as `pub`) is
+// a publish, whatever sits between them. A quoted word after a program that
+// runs scripts (`sh -c`, `su -c`, `eval`) is read as a script the same way.
+// This also denies `echo npm publish`, which the raw rule denies too. Only
+// help and version output is left alone, where npm is the command itself:
+// `npm help publish`, `npm -h publish`.
 
 const PUBLISHES: Decision = {
   verdict: 'deny',
@@ -34,94 +23,101 @@ const PUBLISHES: Decision = {
     'Inspect the package with `npm pack --dry-run`, and publish from CI or a terminal outside Pi.',
 };
 
-const TOOLS = new Set(['npm', 'pnpm', 'yarn', 'lerna', 'changeset']);
-const RUNNERS = new Set(['npx', 'pnpx']);
+const RUNNERS = new Set([
+  'npm',
+  'pnpm',
+  'yarn',
+  'lerna',
+  'changeset',
+  'npx',
+  'pnpx',
+]);
+// Levels of script in a script. Past this the command is denied, as it is
+// when it is too large to read and has a runner word and `publish` text.
 const MAX_DEPTH = 3;
+const MAX_WORDS = 1000;
+const MAX_CHARS = 8192;
 
-// Whether a shell script, such as the value of `npx -c`, runs a publish.
-function scriptPublishes(script: string, depth: number): boolean {
+// The runner a word names, or '' when it is not one.
+function runnerOf(word: Word): string {
+  if (word.dynamic || isScript(word)) return '';
+  const name = programOf(word);
+  return RUNNERS.has(name) ? name : '';
+}
+
+// Whether `npm` is the command and stops at an info flag or `help`.
+function isInfoForm(words: Word[]): boolean {
+  const first = words.findIndex(word => !SHELL_KEYWORDS.has(word.text));
+  const {command, resolved} = unwrap(first < 0 ? [] : words.slice(first));
+  const [program, arg] = command;
+
   return (
-    depth > MAX_DEPTH ||
-    expandScripts(parseSegments(script)).segments.some(
-      segment => classify(segment, depth + 1).length > 0,
-    )
+    resolved &&
+    program !== undefined &&
+    runnerOf(program) === 'npm' &&
+    arg !== undefined &&
+    !arg.dynamic &&
+    (arg.text === 'help' || INFO_FLAGS.has(arg.text))
   );
 }
 
-// Whether the program `name` run with these arguments publishes.
-function publishes(name: string, args: Word[], depth: number): boolean {
-  if (depth > MAX_DEPTH) return true;
-  if (!TOOLS.has(name) && !RUNNERS.has(name)) return false;
-  // npm stops at help and version flags when they come first.
-  if (
-    name === 'npm' &&
-    args[0] &&
-    !args[0].dynamic &&
-    (args[0].text === 'help' || INFO_FLAGS.has(args[0].text))
-  )
-    return false;
-
-  return args.some((word, i) => {
-    // A dynamic word keeps its literal text, so `"lerna publish $F"` is read.
-    if (tokens(word.text).includes('publish')) return true;
-    // `--call=script` and `-cscript` carry the script after the option.
-    if (isScript(word))
-      return [word.text, word.text.replace(/^(?:--call=|-c=?)/u, '')].some(
-        text => scriptPublishes(text, depth),
-      );
-    if (name === 'npm' && isNpmPublish(word.text)) return true;
-    // A tool started by this one: `npx lerna`, `yarn npm pub`, `pnpm exec`.
-    return publishes(programOf(word), args.slice(i + 1), depth + 1);
-  });
+// A command too large to read in the time allowed: deny when it has a runner
+// word and any `publish` text, and allow otherwise.
+function tooLarge(words: Word[]): boolean {
+  let chars = 0;
+  for (const word of words) chars += word.text.length;
+  return words.length > MAX_WORDS || chars > MAX_CHARS;
 }
 
-// Words that may start a command, after wrappers that leave it in place.
-// `wrapped` is set when the command is a wrapper's argument, where a word may
-// also be a whole script (`script -c 'npm publish'`).
-function commandStarts(words: Word[]): {starts: number[]; wrapped: boolean} {
-  const starts: number[] = [];
-  let wrapped = false;
+function largePublishes(words: Word[]): boolean {
+  const names = words.map(runnerOf);
+  if (!names.some(Boolean)) return false;
+  const npm = names.includes('npm');
+  return words.some(word =>
+    tokens(word.text).some(
+      token => token === 'publish' || (npm && isNpmPublish(token)),
+    ),
+  );
+}
 
-  for (let i = 0; i < words.length;) {
-    const name = basename(literal(words[i]));
-    if (SHELL_KEYWORDS.has(words[i].text)) i++;
-    else if (KEEPS_COMMAND.has(name) || name === 'corepack') {
-      i++;
-      while (words[i]?.text.startsWith('-')) i++;
-    } else if (OPTIONED_WRAPPERS.has(name)) {
-      for (let j = i + 1; j < words.length; j++) starts.push(j);
-      wrapped = true;
-      break;
-    } else {
-      starts.push(i);
-      break;
+// Whether the text of a script, such as the value of `sh -c`, publishes.
+function scriptPublishes(script: string, depth: number): boolean {
+  return parseSegments(script).some(segment => publishes(segment, depth + 1));
+}
+
+// Whether a segment publishes. Linear in its words: one pass, no slices.
+function publishes(words: Word[], depth: number): boolean {
+  if (depth > MAX_DEPTH) return true;
+  if (tooLarge(words)) return largePublishes(words);
+  if (isInfoForm(words)) return false;
+
+  let runner = false;
+  let npm = false;
+  let takesScripts = false;
+
+  for (const word of words) {
+    const script = isScript(word);
+
+    if (runner && tokens(word.text).includes('publish')) return true;
+    if (script && (runner || takesScripts)) {
+      // `--call=script` and `-cscript` carry the script after the option.
+      const bare = word.text.replace(/^(?:--call=|-c=?)/u, '');
+      if (scriptPublishes(word.text, depth)) return true;
+      if (bare !== word.text && scriptPublishes(bare, depth)) return true;
     }
+    if (npm && !script && isNpmPublish(word.text)) return true;
+
+    const name = runnerOf(word);
+    if (name) runner = true;
+    if (name === 'npm') npm = true;
+    if (!word.dynamic && SCRIPT_TAKERS.has(basename(word.text)))
+      takesScripts = true;
   }
 
-  return {starts, wrapped};
+  return false;
 }
 
-function nested(words: Word[], depth: number): boolean {
-  const {starts, wrapped} = commandStarts(words);
-  return starts.some(
-    i =>
-      publishes(basename(literal(words[i])), words.slice(i + 1), depth) ||
-      (wrapped && isScript(words[i]) && scriptPublishes(words[i].text, depth)),
-  );
-}
-
-function classify(segment: Word[], depth: number): Decision[] {
-  const first = segment.findIndex(word => !SHELL_KEYWORDS.has(word.text));
-  const {command, resolved} = unwrap(first < 0 ? [] : segment.slice(first));
-  const found = resolved
-    ? nested(command, depth)
-    : command.some((_, i) => nested(command.slice(i), depth));
-
-  return found ? [PUBLISHES] : [];
-}
-
-// `segment` is one simple command. When an option of `env` or `time` is
-// unknown, any later word may start the command.
+// `segment` is one simple command.
 export function classifyPublish(segment: Word[]): Decision[] {
-  return classify(segment, 0);
+  return publishes(segment, 0) ? [PUBLISHES] : [];
 }

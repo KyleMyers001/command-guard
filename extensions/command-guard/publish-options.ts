@@ -1,4 +1,5 @@
-// What publish.ts needs to find where a command starts, and when npm stops.
+// What publish.ts needs to read a command: when npm stops, and which words
+// take a script.
 
 // npm prints help or the version and stops at these when one comes first.
 export const INFO_FLAGS = new Set(['-h', '-?', '--help', '--version', '-v']);
@@ -17,43 +18,30 @@ export const SHELL_KEYWORDS = new Set([
   '{',
 ]);
 
-// The first wrapper word is the command; the rest cannot be told apart from
-// its own options, so any later word may be the command.
-export const KEEPS_COMMAND = new Set(['command', 'builtin', 'nohup', 'setsid']);
-
-// Wrappers whose options or arguments cannot be told apart from the command
-// they run (`exec -a name cmd`, `flock file cmd`, `find . -exec cmd \;`), so
-// any later word may start it.
-export const OPTIONED_WRAPPERS = new Set([
-  'exec',
-  'function',
-  'coproc',
-  'sudo',
-  'doas',
-  'nice',
-  'ionice',
-  'xargs',
-  'timeout',
-  'stdbuf',
-  'caffeinate',
-  'flock',
-  'unshare',
-  'taskset',
-  'script',
-  'find',
-  'chroot',
-  'nsenter',
-  'setpriv',
-  'runuser',
+// Programs that run a script they are given as a quoted word (`sh -c 'a b'`,
+// `su -c`, `ssh host 'a b'`). A quoted word after one of them is read as a
+// script; a quoted word anywhere else (`git commit -m "npm publish"`,
+// `grep -c "lerna publish" f`, `sudo grep "npm publish" f`) is text. Finding
+// the command itself needs no list: every word is scanned.
+export const SCRIPT_TAKERS = new Set([
+  'sh',
+  'bash',
+  'zsh',
+  'dash',
+  'ksh',
+  'mksh',
+  'ash',
+  'yash',
+  'fish',
+  'csh',
+  'tcsh',
+  'eval',
   'su',
-  'chrt',
-  'numactl',
-  'strace',
+  'runuser',
+  'sg',
+  'script',
+  'flock',
+  'ssh',
   'watch',
   'parallel',
-  'ssh',
-  'systemd-run',
-  'fakeroot',
-  'eatmydata',
-  'unbuffer',
 ]);
