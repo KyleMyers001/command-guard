@@ -1,6 +1,5 @@
 import {basename} from 'node:path';
 import type {Decision} from './commands.ts';
-import {isPrefix} from './prefixes.ts';
 import {parseSegments, type Word} from './shell.ts';
 
 // Finds the literal scripts of `sh -c script` and `eval script`, which are
@@ -109,8 +108,11 @@ function shellScript(args: Word[]): Word | undefined {
   return undefined;
 }
 
-// The script a command runs, when it is itself `sh -c script` or `eval script`.
-function scriptOf(command: Word[]): {script?: string; decision?: Decision} {
+function nestedScript(segment: Word[]): {script?: string; decision?: Decision} {
+  const {command, resolved} = unwrap(segment);
+  if (!resolved)
+    return command.some(runsScripts) ? {decision: WRAPPER_UNRESOLVED} : {};
+
   const [runner, ...args] = command;
   if (!runner || !runsScripts(runner)) return {};
 
@@ -131,22 +133,6 @@ function scriptOf(command: Word[]): {script?: string; decision?: Decision} {
     script: script.text,
     decision: script.dynamic ? SCRIPT_UNRESOLVED : undefined,
   };
-}
-
-function nestedScript(segment: Word[]): {script?: string; decision?: Decision} {
-  const {command, resolved} = unwrap(segment);
-  if (!resolved)
-    return command.some(runsScripts) ? {decision: WRAPPER_UNRESOLVED} : {};
-  if (!isPrefix(command[0])) return scriptOf(command);
-
-  // After a prefix such as `sudo` or `command`, the shell may start at any
-  // later word. Only a literal script is read there: a computed one stays as
-  // allowed as it was, since the word may be an argument to something else.
-  for (let i = 1; i < command.length; i++) {
-    const {script, decision} = scriptOf(command.slice(i));
-    if (script !== undefined && !decision) return {script};
-  }
-  return {};
 }
 
 // `segments` followed by the commands of every literal script among them,
