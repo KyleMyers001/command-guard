@@ -218,7 +218,8 @@ Supported selectors:
   literal words every match of its expression needs (`pnpm`, `-r` and
   `publish` for `^pnpm -r publish`), found in the command as written, in its
   canonical spelling, or with its quotes and backslashes removed (so `pn''pm`
-  inside a script string is `pnpm`), in any case: a deny rule denies it and an
+  inside a script string is `pnpm`), in the case the expression itself folds
+  (any case for `(?i:...)`, `publiſh` included): a deny rule denies it and an
   ask rule asks.
   A command without them is not blocked by the rule, so a long `git commit -m`
   is not caught by a publish rule. An expression with no such words (`^x`, or

@@ -140,10 +140,11 @@ class Reader {
   }
 }
 
-// Lower case words, as a command is searched in lower case.
+// The words of one alternative, as written: they are matched with the case
+// folding of the rule's own regex.
 function wordsOf(runs: string[]): string[] | undefined {
   const words = runs
-    .flatMap(run => run.toLowerCase().split(WORD_BREAK))
+    .flatMap(run => run.split(WORD_BREAK))
     .filter(word => word.length >= 2);
   return words.length > 0 ? [...new Set(words)] : undefined;
 }
@@ -165,10 +166,18 @@ export function regexTriggers(source: string): string[][] | undefined {
   }
 }
 
-// True if `text` holds every word of at least one alternative.
-export function hasTriggers(text: string, triggers: string[][]): boolean {
-  const lower = text.toLowerCase();
-  return triggers.some(words => words.every(word => lower.includes(word)));
+// `regexTriggers` as matchers that fold case as the rule's regex does: with
+// `iu`, `ſ` is an `s`. A `(?i:...)` that may not cover the whole expression
+// makes every word case-insensitive, which only widens it.
+export function triggerMatchers(source: string): RegExp[][] | undefined {
+  const fold = /\(\?[a-z]*i[a-z-]*:/u.test(source) ? 'iu' : 'u';
+  return regexTriggers(source)?.map(words =>
+    words.map(word => new RegExp(escaped(word), fold)),
+  );
+}
+
+function escaped(word: string): string {
+  return word.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
 // The command's text, then as the shell reads it once quotes and backslashes
@@ -181,4 +190,9 @@ export function textVariants(commands: string[]): string[] {
       .replace(/\$(?=['"])/gu, '')
       .replace(/['"\\`]/gu, ''),
   ]);
+}
+
+// True if the text holds every word of at least one alternative.
+export function hasTriggers(text: string, triggers: RegExp[][]): boolean {
+  return triggers.some(words => words.every(word => word.test(text)));
 }

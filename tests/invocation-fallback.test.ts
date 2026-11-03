@@ -6,6 +6,7 @@ import {analyzeCommand} from '../extensions/command-guard/commands.ts';
 import {
   hasTriggers,
   regexTriggers,
+  triggerMatchers,
 } from '../extensions/command-guard/triggers.ts';
 import {decide} from './helpers/decide.ts';
 
@@ -52,7 +53,6 @@ test('over the cap, a command with the rule’s words is blocked', async t => {
     commit: `git commit -m '${'fix '.repeat(3000)}'; pnpm -r publish`,
     spaced: `${over.echo}; pnpm   -r    publish`,
     quoted: `${over.echo}; pnpm -r 'pub'"lish"`,
-    upper: `${over.echo}; PNPM -r PUBLISH`,
     computed: 'find . -exec sh -c "$X; pnpm -r publish" \';\'',
     find: `find . ${'-exec a \\; '.repeat(400)}-exec pnpm -r publish \\;`,
   };
@@ -121,7 +121,7 @@ test('trigger words are the literal words every match needs', () => {
   assert.deepEqual(words('^pnpm\\s+-r\\s+publish\\b'), [
     ['pnpm', '-r', 'publish'],
   ]);
-  assert.deepEqual(words('(?i:^NPM publish)'), [['npm', 'publish']]);
+  assert.deepEqual(words('(?i:^NPM publish)'), [['NPM', 'publish']]);
   assert.deepEqual(words('^(?:npm|pnpm) publish'), [
     ['npm', 'publish'],
     ['pnpm', 'publish'],
@@ -156,9 +156,14 @@ test('trigger words are the literal words every match needs', () => {
   }
 });
 
-test('trigger words are looked for in lower case, anywhere in the text', () => {
-  const triggers = [['pnpm', '-r', 'publish']];
-  assert.ok(hasTriggers('x PNPM y -R z Publish', triggers));
-  assert.ok(!hasTriggers('pnpm -r build', triggers));
-  assert.ok(hasTriggers('npm publish', [['npm', 'publish'], ['pnpm']]));
+test('trigger words are looked for anywhere in the text, in the rule’s case', () => {
+  const triggers = (source: string) => triggerMatchers(source) ?? [];
+  const sensitive = triggers('^pnpm -r publish');
+  assert.ok(hasTriggers('x pnpm y -r z publish', sensitive));
+  assert.ok(!hasTriggers('x PNPM y -R z Publish', sensitive));
+  assert.ok(!hasTriggers('pnpm -r build', sensitive));
+  assert.ok(hasTriggers('npm publish', triggers('^(?:npm|pnpm) publish')));
+  assert.ok(
+    hasTriggers('x PNPM y -R z Publish', triggers('(?i:^pnpm -r publish)')),
+  );
 });

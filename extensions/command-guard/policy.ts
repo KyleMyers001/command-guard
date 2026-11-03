@@ -1,5 +1,5 @@
 import {readFileSync} from 'node:fs';
-import {regexTriggers} from './triggers.ts';
+import {triggerMatchers} from './triggers.ts';
 
 export type GuardTool = 'bash' | 'read' | 'edit' | 'write';
 
@@ -13,12 +13,10 @@ export interface Rule {
   regex?: RegExp;
   // Raw selectors still match canonical spelling, but never flattened text.
   flatten?: false;
-  // `invocation` for BashCmdRegex: matched against each simple command's
-  // invocation, not against the command text.
+  // `invocation` for BashCmdRegex: matched against each command's invocation.
   view?: 'invocation';
-  // For `BashCmdRegex`: words a command must hold, one list of them in full,
-  // for the rule to apply when the command has no view. Absent if none.
-  triggers?: string[][];
+  // `BashCmdRegex`: words a command with no view must hold, one list in full.
+  triggers?: RegExp[][];
 }
 
 interface Policy {
@@ -150,7 +148,7 @@ function parseRule(value: unknown): Rule {
       pattern,
       regex: compileBashRegex(pattern),
       view: 'invocation',
-      triggers: pattern === undefined ? undefined : regexTriggers(pattern),
+      triggers: pattern === undefined ? undefined : triggerMatchers(pattern),
     };
   }
 
