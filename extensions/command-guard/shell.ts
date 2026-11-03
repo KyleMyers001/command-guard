@@ -133,6 +133,10 @@ function scanCommands(
       }
       i = substitution(i + 1, '`');
     } else if (char === '(') {
+      // After a word or an unfinished redirect, `(` may be extglob `!(a|b)` or
+      // a `>(` split by a continuation; the split can differ from bash.
+      const afterWord = word || segment.length > 0 || redirect !== 'none';
+      if (!mode.legacy && afterWord) mode.uncertain = true;
       endSegment();
       openParens++;
       i++;
