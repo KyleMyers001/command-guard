@@ -108,3 +108,33 @@ test('a deep or malformed expression fails closed', () => {
   assert.equal(regexTriggers(`${'('.repeat(200_000)}pnpm publish`), undefined);
   assert.equal(regexTriggers('^(pnpm publish'), undefined);
 });
+
+test('the limits on alternatives and on their product', () => {
+  const words = (n: number) =>
+    Array.from({length: n}, (_, i) => `w${i}x`).join('|');
+  // At the limit of 32 the alternatives are kept; past it, none are.
+  assert.equal(regexTriggers(`^(?:${words(32)})`)?.length, 32);
+  assert.equal(regexTriggers(`^(?:${words(33)})`), undefined);
+  assert.deepEqual(regexTriggers(`^pnpm (?:${words(33)}) publish`), [
+    ['pnpm', 'publish'],
+  ]);
+  assert.equal(
+    regexTriggers(`^${words(16)}`.replaceAll('|', '|^'))?.length,
+    16,
+  );
+  // Two groups multiply: 4 x 8 = 32 stays whole, 4 x 9 keeps the first only.
+  const group = (n: number, name: string) =>
+    `(?:${Array.from({length: n}, (_, i) => `${name}${i}x`).join('|')})`;
+  assert.equal(regexTriggers(`^${group(4, 'a')} ${group(8, 'b')}`)?.length, 32);
+  const capped = regexTriggers(`^${group(4, 'a')} ${group(9, 'b')}`);
+  assert.deepEqual(capped, [['a0x'], ['a1x'], ['a2x'], ['a3x']]);
+});
+
+test('a word boundary is not text and does not split a word', () => {
+  assert.deepEqual(regexTriggers('^\\bnpm\\b publish\\b'), [
+    ['npm', 'publish'],
+  ]);
+  assert.deepEqual(regexTriggers('^pn\\bpm -r pub\\Blish'), [
+    ['pnpm', '-r', 'publish'],
+  ]);
+});
