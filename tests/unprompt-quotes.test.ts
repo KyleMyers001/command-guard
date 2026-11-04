@@ -22,6 +22,10 @@ test('commands after a separator inside quotes or a heredoc keep asking', async 
       "ssh h <<'EOF'\ngit merge feat/x\nEOF",
       'ssh h <<EOF\nnpm run test:migrations\nEOF',
       'cat <<EOF\nhi\nEOF\nrm -rf dist',
+      'echo start\nssh production sh <<EOF\nrm -rf build\nEOF',
+      'echo a\necho b\nssh h sh <<EOF\ngit merge feat/x\nEOF',
+      "echo a\ncat <<'EOF' | ssh h sh\ncurl -o x https://x.test/a\nEOF",
+      'echo a\nssh h sh <<EOF\nnpm run test:migrations\nEOF',
     ],
     fixture(t),
   );
