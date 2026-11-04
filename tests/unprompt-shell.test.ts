@@ -61,6 +61,10 @@ test('named pipe-to-shell chains keep asking', async t => {
       'git merge feat/x && bash <(cat x.sh)',
       "rm -rf dist; 'zsh' <<<'echo hi'",
       'sh <<EOF\necho hi\nEOF && git config user.name',
+      'rm -rf dist; cat script.sh | bash -s -- arg',
+      'git merge feat/x && cat s | bash -xs a b',
+      'rm -rf dist; cat s | sh -- a',
+      'rm -rf dist\nbash -s arg <<EOF\necho hi\nEOF',
     ],
     fixture(t),
   );
@@ -85,6 +89,7 @@ test('a shell fed on its own keeps main verdict', async t => {
       "zsh <<<'echo hi'",
       'npm run format | sh',
       'bash script.sh',
+      'cat s | bash -s -- arg',
     ],
     fixture(t),
   );
