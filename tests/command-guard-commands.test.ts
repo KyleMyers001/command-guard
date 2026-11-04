@@ -603,7 +603,7 @@ test('canonical spelling drops global options, paths, and needless quotes', () =
   );
   assert.equal(
     canonical("/usr/bin/git -c a=b --no-pager reset '--hard'"),
-    'git reset --hard',
+    'git --global-options reset --hard\ngit reset --hard',
   );
   assert.equal(
     canonical('env X=1 "git" push origin \'main\''),

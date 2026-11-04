@@ -23,8 +23,6 @@ test('local git merge is allowed', async t => {
       'git merge --allow-unrelated-histories feat/x',
       'git merge',
       'git -C repo merge feat/x',
-      'git --no-pager merge feat/x',
-      'git -P -C repo merge feat/x',
       'git fetch origin && git merge origin/main',
       'git merge --abort',
       'git merge --continue',

@@ -65,7 +65,6 @@ test('merge keeps asking for expansions and space-valued global options', async 
       '\\git -c a=b merge feat/x',
       "git --work-tree='/tmp/other repo' merge feat/x",
       'git --git-dir="/tmp/o r" merge feat/x',
-      "git -C 'a b' merge feat/x",
       'git -C "a\\" b" merge feat/x',
       "git -c user.name='a b' merge feat/x",
       "git --a=$'x\\'y z' merge feat/x",

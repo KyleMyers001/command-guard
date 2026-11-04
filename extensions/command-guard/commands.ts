@@ -184,7 +184,7 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
     let args = segment.slice(at + 1);
 
     if (tool === 'git') {
-      const {rest, dirs} = withoutGitGlobals(args);
+      const {rest, dirs, plain} = withoutGitGlobals(args);
       const movesWorkTree = segment
         .slice(0, at)
         .some(word => word.text.startsWith('GIT_WORK_TREE='));
@@ -193,7 +193,12 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
           ? workdirs?.map(dir => resolve(dir, ...dirs))
           : undefined;
       args = rest;
-      decisions.push(...classifyGit(args, gitDirs));
+      decisions.push(...classifyGit(args, gitDirs, plain));
+      // The line above drops Git's options. When any is not `-C <literal
+      // path>`, an extra line keeps a placeholder so that narrowed ask rules,
+      // which exempt only plain forms, still ask.
+      if (!plain)
+        lines.push(['git', '--global-options', ...args.map(spell)].join(' '));
     } else if (tool === 'gh') {
       args = withSeparateApiValues(withoutGhRepo(args));
     } else if (tool === 'kubectl') {

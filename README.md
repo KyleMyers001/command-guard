@@ -241,10 +241,13 @@ path outside it keeps the original ask. Denies are never narrowed.
 - `gh api graphql` with literal single-quoted `query=` text that does not contain
   `mutation` or a `{owner}`/`{repo}`/`{branch}` placeholder, plus simple variables. `@file`, `--input`, `--hostname`, headers,
   `-X`, and any other option still ask.
-- Local `git merge`, except with `--no-verify`, or with a global option other
-  than `-C <dir>`, `--no-pager`, `-P`, or `--no-optional-locks` (`-c`,
-  `--git-dir`, `--work-tree`, and `--exec-path` can run code or move the work
-  tree). Pushes keep their rules.
+- Local `git merge`, except with `--no-verify`. Pushes keep their rules.
+- Every Git class here (merge, config reads, `checkout --detach`) applies only
+  when the sole options before the subcommand are `-C <literal path>`, any
+  literal path including `/`. Any other option in any quoting (`-c`,
+  `--config-env`, `--git-dir`, `--work-tree`, `--exec-path`, `--no-pager`, ...)
+  or a computed `-C` path (`$VAR`, `$(...)`, backticks, globs, `~`) keeps
+  main's verdict.
 - `git config` reads: `--get`, `--get-all`, `--get-regexp`, `--list`, `-l`, and a
   bare `section.key`, with optional `--global`, `--local`, `--system`,
   `--worktree`, `--show-origin`, `--show-scope`. Writes, `-f`, and `-e` ask.
