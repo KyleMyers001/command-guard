@@ -49,15 +49,17 @@ const MOVES_DIR =
   /(?<![\w./-])(?:cd|pushd|popd|chdir|chroot|source|eval)(?![\w.-])|(?:^|[;&|(\n{]|then|do|else)\s*(?:(?:builtin|command)\s+)?\.(?=\s)|\s-C(?![\w-])|--chdir/u;
 
 // One pass over the text: `plain` has every quoted string and escaped
-// character replaced by `_`; `live` keeps double-quoted text, where `$` and
+// character replaced by MARK; `live` keeps double-quoted text, where `$` and
 // backticks still expand. Undefined when a quote is left open.
+// Stands in for a quoted string or escaped character in `plain`.
+const MARK = '\u0001';
 function scan(text: string): {plain: string; live: string} | undefined {
   let plain = '';
   let live = '';
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
     if (char === '\\') {
-      plain += '_';
+      plain += MARK;
       live += '_';
       i++;
     } else if (char === "'" || char === '"') {
@@ -65,7 +67,7 @@ function scan(text: string): {plain: string; live: string} | undefined {
       while (j < text.length && text[j] !== char)
         j += char === '"' && text[j] === '\\' ? 2 : 1;
       if (j >= text.length) return undefined;
-      plain += '_';
+      plain += MARK;
       live += char === '"' ? text.slice(i, j + 1) : '_';
       i = j;
     } else {
@@ -131,20 +133,24 @@ export function chainUnsafe(
   // Bare means as written, decided per segment: the segment that holds an
   // atom must start with the literal head (`\\git`, `'git'`, `g''it` keep
   // main's verdict). Segments that cannot be matched up fail closed.
-  if (atoms.length > 0) {
-    const spelled = plain
-      .split(/&&|\|\||(?<![<>])&(?!>)|(?<![>&])\|(?!&)|\|&|[;\n]/u)
-      .map(part => part.trim())
-      .filter(part => part !== '');
-    const listed = words.filter(list => list.length > 0);
-    if (spelled.length !== listed.length) return true;
-    for (let i = 0; i < listed.length; i++)
-      if (
-        isClassAtom(listed[i]) &&
-        !new RegExp(`^${listed[i][0]}(?:[ \\t]|$)`, 'u').test(spelled[i])
-      )
-        return true;
+  const spelled = plain
+    .split(/&&|\|\||(?<![<>])&(?!>)|(?<![>&])\|(?!&)|\|&|[;\n]/u)
+    .map(part => part.trim())
+    .filter(part => part !== '');
+  const listed = words.filter(list => list.length > 0);
+  if (spelled.length !== listed.length) return true;
+  for (let i = 0; i < listed.length; i++) {
+    // Sophie's final ruling: any segment whose command word is quoted,
+    // escaped, continued or expanded keeps main's verdict for the chain.
+    const head = /^\S*/u.exec(spelled[i])?.[0] ?? '';
+    if (head.includes(MARK) || /[$`]/u.test(head)) return true;
+    if (
+      isClassAtom(listed[i]) &&
+      !new RegExp(`^${listed[i][0]}(?:[ \\t]|$)`, 'u').test(spelled[i])
+    )
+      return true;
   }
+
   for (let i = 0; i < parsed.length; i++) {
     const segment = parsed[i];
     if (segment.length === 0) continue;

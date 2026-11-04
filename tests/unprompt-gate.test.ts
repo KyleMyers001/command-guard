@@ -274,3 +274,47 @@ for (const [name, command] of GUARD_SHAPES)
     await verdict(command, cwd);
     assert.ok(performance.now() - start < 60000, name);
   });
+
+// Sophie's final ruling: a quoted, escaped, continued or expanded command
+// word in any segment keeps main's verdict for the whole chain.
+const SAFE_HEADS = [
+  'ls',
+  'cat README.md',
+  'head -n 5 README.md',
+  'tail -n 5 README.md',
+  'wc -l README.md',
+  'grep -n x README.md',
+  'sort README.md',
+  'jq . a.json',
+  'echo hi',
+  'printf ok',
+  'pwd',
+  'true',
+  'mkdir -p dist',
+  'git status',
+  'npm run build',
+  'cd .',
+  'pushd .',
+];
+const spellings = (command: string): string[] => {
+  const [word, ...rest] = command.split(' ');
+  const tail = rest.length ? ` ${rest.join(' ')}` : '';
+  const cut = Math.max(1, word.length - 1);
+  return [
+    `'${word}'`,
+    `"${word}"`,
+    `${word.slice(0, cut)}''${word.slice(cut)}`,
+    `\\${word}`,
+    `${word.slice(0, cut)}\\\n${word.slice(cut)}`,
+    '$X',
+    '${X}',
+  ].map(spelled => spelled + tail);
+};
+test('spelled command words in any segment keep main verdict', async t => {
+  const commands = [];
+  for (const atom of ATOMS)
+    for (const safe of SAFE_HEADS)
+      for (const spelled of spellings(safe))
+        commands.push(`${spelled}; ${atom}`, `${atom} && ${spelled}`);
+  await notAllowed(commands, fixture(t));
+});
