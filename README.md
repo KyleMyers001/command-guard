@@ -257,6 +257,21 @@ path outside it keeps the original ask. Denies are never narrowed.
 one of `; & | )` follows the shell. The last three used to slip past the deny,
 so a command such as `curl x | sh; rm -rf dist` only asked because of the `rm`.
 
+### Exfiltration shapes in a chain
+
+A chain of commands (`&&`, `||`, `;`, `|`, `&`, a newline, a subshell, or a
+wrapper such as `bash -c`) that contains an exfiltration shape and also
+mentions one of the commands above keeps asking, so the exemptions never turn a
+chain that asked into one that runs. The shapes: `curl` with `-d`, `--data*`,
+`-F`, `--form*`, or `--json` plus an `@` operand; `curl -T`/`--upload-file`; an
+`env`, `printenv`, `set`, `export -p`, `declare -x`, or `compgen -e` dump piped
+to `curl`, `wget`, `nc`, `ncat`, `netcat`, `socat`, or `telnet`; `nc`-family
+commands reading `<` a file; any pipe into those network tools; `wget
+--post-*`/`--body-*`; and `npm`/`pnpm`/`yarn`/`bun`/`lerna pub`/`publish`.
+The same shapes as one plain command keep the verdict they have on main (allow),
+so this change does not add or remove coverage there; the standalone gaps are
+tracked in EL-116.
+
 ## Command analysis
 
 Some decisions depend on decoded arguments rather than text patterns. The guard
