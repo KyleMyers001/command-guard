@@ -115,6 +115,9 @@ test('curl uploads, pipes, other paths and extra options keep main verdicts', as
       // A directory change before the curl moves what the path means.
       'cd / && curl -o x https://x.test',
       'cd .. && curl -o x https://x.test',
+      'source x.sh; curl -o x https://x.test',
+      '. x.sh && curl -o x https://x.test',
+      'eval "$X"; curl -o x https://x.test',
       'cd ~ && curl -o x https://x.test',
       'pushd /etc && curl -o x https://x.test',
       'git -C / status && curl -o x https://x.test',
