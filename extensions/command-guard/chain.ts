@@ -152,7 +152,8 @@ export function chainUnsafe(
     if (segment.length === 0) continue;
     // Arguments may hold a glob or braces; `$` and backticks were refused above.
     if (segment[0].dynamic) return true;
-    if (isFed(segment) && !filters(segment)) return true;
+    // Input into a lone command (`<> /dev/null`) cannot reach another one.
+    if (segments.length > 1 && isFed(segment) && !filters(segment)) return true;
   }
   if (segments.length <= 1) return false;
   return !segments.every(segment => {
