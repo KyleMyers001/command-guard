@@ -270,7 +270,7 @@ A chain of commands (`&&`, `||`, `;`, `|`, `&`, a newline, a subshell, or a
 wrapper such as `bash -c`) that contains an exfiltration shape and also
 mentions one of the commands above keeps asking, so the exemptions never turn a
 chain that asked into one that runs. The shapes: `curl` with `-d`, `--data*`,
-`-F`, `--form*`, or `--json` plus an `@` operand; `curl -T`/`--upload-file`; an
+`-F`, `--form*`, or `--json` plus an `@` (or form `<`) operand; `curl -T`/`--upload-file`; an
 `env`, `printenv`, `set`, `export -p`, `declare -x`, or `compgen -e` dump piped
 to `curl`, `wget`, `nc`, `ncat`, `netcat`, `socat`, or `telnet`; `nc`-family
 commands reading `<` a file; any pipe into those network tools; `wget
@@ -278,6 +278,14 @@ commands reading `<` a file; any pipe into those network tools; `wget
 The same shapes as one plain command keep the verdict they have on main (allow),
 so this change does not add or remove coverage there; the standalone gaps are
 tracked in EL-116.
+
+### Shells fed by a chain
+
+A chain that holds one of the commands above and also feeds a shell (`sh`,
+`bash`, `zsh`, `dash`, `ksh`, and similar, in any path, `env`/`command`
+wrapper, or quoting) from a pipe, a heredoc, a here-string, or `<(...)` keeps
+asking. A shell fed that way on its own, such as `echo hi | sh`, keeps main's
+verdict.
 
 ## Command analysis
 
