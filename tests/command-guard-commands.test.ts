@@ -648,7 +648,7 @@ test('canonical spelling separates attached GitHub API flag values', () => {
   );
   assert.equal(
     canonical('gh api -X"$METHOD" repos/o/r'),
-    "gh api -X '$METHOD' repos/o/r",
+    "gh api -X '$METHOD' repos/o/r\ngh api -X $DYNAMIC repos/o/r",
   );
   assert.equal(canonical('gh api -XGET repos/o/r'), 'gh api -X GET repos/o/r');
   // Separate spellings, other options' values, endpoints, and words after

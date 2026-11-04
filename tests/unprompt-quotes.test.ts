@@ -78,3 +78,20 @@ test('merge keeps asking for expansions and space-valued global options', async 
     fixture(t),
   );
 });
+
+test('quoted subcommands with dynamic operands keep main verdicts', async t => {
+  await expectVerdicts(
+    'ASK',
+    [
+      "MERGE_FLAGS=--no-verify; git 'merge' $MERGE_FLAGS feat/x",
+      "git 'merge' $F feat/x",
+      'git "merge" $(echo --no-verify) x',
+      "git 'merge' `x` y",
+      "git 'merge' * y",
+      'gh \'api\' graphql -f query="$Q"',
+      'gh \'api\' graphql -f "query=$Q"',
+      "git 'config' $K",
+    ],
+    fixture(t),
+  );
+});

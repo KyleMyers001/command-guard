@@ -1,6 +1,7 @@
 import {basename, resolve} from 'node:path';
 import {classifyGit, withoutGitGlobals} from './git.ts';
 import {expandScripts} from './scripts.ts';
+import {spell, spellDynamic} from './spelling.ts';
 import {parseSegments, type Word} from './shell.ts';
 
 // Decisions made from a command's decoded arguments rather than its text.
@@ -157,11 +158,6 @@ function workdirsAfter(
   return all.length > MAX_WORKDIRS ? undefined : all;
 }
 
-function spell(word: Word): string {
-  if (/^[A-Za-z0-9_@%+=:,./~^-]+$/u.test(word.text)) return word.text;
-  return `'${word.text.replaceAll("'", "'\\''")}'`;
-}
-
 export function analyzeCommand(command: string, cwd: string): Analysis {
   const lines: string[] = [];
   const {segments, decisions} = expandScripts(parseSegments(command));
@@ -207,9 +203,10 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
       decisions.push(...classifyHelm(args));
     }
 
-    lines.push(
-      [...segment.slice(0, at).map(spell), tool, ...args.map(spell)].join(' '),
-    );
+    const prefix = segment.slice(0, at);
+    lines.push([...prefix.map(spell), tool, ...args.map(spell)].join(' '));
+    const spelledDynamic = spellDynamic([...prefix, tool, ...args]);
+    if (spelledDynamic) lines.push(spelledDynamic);
   }
 
   return {canonical: lines.join('\n'), decisions};
