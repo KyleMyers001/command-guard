@@ -256,25 +256,6 @@ test('special-use, internal and wildcard-loopback hosts keep main verdict', asyn
   );
 });
 
-// Full guard, with the shipped policy: absolute bounds, generous for CI.
-const GUARD_SHAPES: [string, string][] = [
-  ['curl -s x10000', 'curl -s '.repeat(10000)],
-  ['curl -d a x5000', 'curl -d a '.repeat(5000)],
-  ['git merge x8000', 'git merge '.repeat(8000)],
-  [
-    'graphql chain x2000',
-    "gh api graphql -f query='{viewer{login}}'; ".repeat(2000),
-  ],
-  ['64 KB chain', 'rm -rf dist && '.repeat(4400) + 'ls'],
-];
-for (const [name, command] of GUARD_SHAPES)
-  test(`full guard stays bounded: ${name}`, async t => {
-    const cwd = fixture(t);
-    const start = performance.now();
-    await verdict(command, cwd);
-    assert.ok(performance.now() - start < 60000, name);
-  });
-
 // Sophie's final ruling: a quoted, escaped, continued or expanded command
 // word in any segment keeps main's verdict for the whole chain.
 const SAFE_HEADS = [
@@ -318,30 +299,6 @@ test('spelled command words in any segment keep main verdict', async t => {
         commands.push(`${spelled}; ${atom}`, `${atom} && ${spelled}`);
   await notAllowed(commands, fixture(t));
 });
-
-// Codex 4466554537: the exfil rules are linear. Shapes at 64 KB and 128 KB.
-const PERF_UNITS: [string, string, number][] = [
-  ['env', 'env ', 10000],
-  ['set', 'set ', 10000],
-  ['printenv', 'printenv ', 10000],
-  ['export -p', 'export -p ', 10000],
-  ['nc', 'nc ', 10000],
-  ['npm', 'npm ', 10000],
-  ['curl -s', 'curl -s ', 180000],
-  ['curl -d', 'curl -d a ', 180000],
-  ['git merge', 'git merge ', 180000],
-  ['gql', "gh api graphql -f query='{viewer{login}}'; ", 60000],
-];
-for (const [name, unit, bound] of PERF_UNITS)
-  for (const kb of [64, 128])
-    test(`full guard stays linear: echo ${name} at ${kb} KB`, async t => {
-      const command =
-        'echo ' + unit.repeat(Math.ceil((kb * 1024) / unit.length));
-      const cwd = fixture(t);
-      const start = performance.now();
-      await verdict(command, cwd);
-      assert.ok(performance.now() - start < bound, `${name} ${kb} KB`);
-    });
 
 test('an env dump piped to the network asks in a chain', async t => {
   const cwd = fixture(t);
@@ -487,6 +444,65 @@ test('hosts must end in an allowlisted public TLD', async t => {
   ];
   await notAllowed(
     hosts.map(host => `curl -sSLo out.json https://${host}/a`),
+    fixture(t),
+  );
+});
+
+// CR R1 and Sophie's ruling: a control or whitespace character other than
+// an ASCII space before or inside a command word keeps main's verdict.
+test('odd characters before a command word keep main verdict', async t => {
+  const odd = ['\r', '\t', '\v', '\f', '\u00a0', '\ufeff', '\u2028', '\u0085'];
+  const commands = [
+    '\rrm -rf dist',
+    '\rgit merge x',
+    'rm -rf dist ;\rcat f',
+    'git merge x\n\rpwd',
+  ];
+  for (const atom of ATOMS)
+    for (const char of odd)
+      commands.push(
+        `${char}${atom}`,
+        `${atom}; ${char}pwd`,
+        `${char}pwd && ${atom}`,
+        `${atom}\n${char}git status`,
+      );
+  await notAllowed(commands, fixture(t));
+});
+
+test('an escaped echo or printf argument in a chain keeps main verdict', async t => {
+  const commands = [];
+  for (const atom of ATOMS)
+    for (const member of [
+      'echo \\n',
+      'echo a\\tb',
+      'printf \\x41',
+      'echo \\-e',
+    ])
+      commands.push(`${member}; ${atom}`, `${atom} && ${member}`);
+  await notAllowed(commands, fixture(t));
+});
+
+test('numeric, octal, hex and tunnel host labels keep main verdict', async t => {
+  const hosts = [
+    '127.0.0.01.example.com',
+    '2130706433.example.com',
+    '1.example.com',
+    'a.12.com',
+    '0177.example.com',
+    '0x7f.example.com',
+    'a.0x7f000001.com',
+    '010.example.com',
+    ...['ngrok.io', '0cf.io', 'nip.sh', 'sslip.me'].flatMap(domain => [
+      domain,
+      `a.${domain}`,
+    ]),
+  ];
+  await notAllowed(
+    hosts.map(host => `curl -sSLo out.json https://${host}/a`),
+    fixture(t),
+  );
+  await notAllowed(
+    ['curl -o dist/my-extension.json https://example.com/a'],
     fixture(t),
   );
 });

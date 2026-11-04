@@ -53,13 +53,15 @@ const MOVES_DIR =
 // backticks still expand. Undefined when a quote is left open.
 // Stands in for a quoted string or escaped character in `plain`.
 const MARK = '\u0001';
+// Stands in for a backslash escape outside quotes.
+const ESCAPE = '\u0002';
 function scan(text: string): {plain: string; live: string} | undefined {
   let plain = '';
   let live = '';
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
     if (char === '\\') {
-      plain += MARK;
+      plain += ESCAPE;
       live += '_';
       i++;
     } else if (char === "'" || char === '"') {
@@ -135,7 +137,9 @@ export function chainUnsafe(
   // main's verdict). Segments that cannot be matched up fail closed.
   const spelled = plain
     .split(/&&|\|\||(?<![<>])&(?!>)|(?<![>&])\|(?!&)|\|&|[;\n]/u)
-    .map(part => part.trim())
+    // Only ASCII spaces: trim() would drop CR, TAB, VT, FF, NBSP, FEFF and
+    // U+2028 before the command-word check (CR R1, Sophie's ruling).
+    .map(part => part.replace(/^ +| +$/gu, ''))
     .filter(part => part !== '');
   const listed = words.filter(list => list.length > 0);
   if (spelled.length !== listed.length) return true;
@@ -147,6 +151,10 @@ export function chainUnsafe(
     const head = /^[^ ]*/u.exec(spelled[i])?.[0] ?? '';
     if (/[$`]|[^\x21-\x7e]|^\d*[<>]|^&>/u.test(head)) return true;
     if (/[^\x21-\x7e]/u.test(listed[i][0])) return true;
+    // echo/printf args are checked decoded in safe.ts; an unquoted `\n` decodes
+    // to `n`, so a raw backslash escape in the segment also fails closed.
+    if (/^(?:echo|printf)$/u.test(listed[i][0]) && spelled[i].includes(ESCAPE))
+      return true;
     if (
       isClassAtom(listed[i]) &&
       !new RegExp(`^${listed[i][0]}(?:[ \\t]|$)`, 'u').test(spelled[i])

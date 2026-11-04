@@ -38,7 +38,7 @@ const ROOT_NAME =
 // CR on f4d8760: any name holding one of these, anywhere and in any case,
 // may be config, policy, credentials or build input.
 const SENSITIVE =
-  /config|conf|lock|polic|setting|mcp|guard|agent|claude|cursor|rule|secret|cred|token|key|env|manifest|package|shrinkwrap|extensions/iu;
+  /config|conf|lock|polic|setting|mcp|guard|agent|claude|cursor|rule|secret|cred|token|key|env|manifest|package|shrinkwrap|extension/iu;
 const MANIFEST =
   /^(?:package|composer|deno|turbo|nx|vercel|renovate|lerna)\.json$|^tsconfig|\.config\.|rc\.json$|(?:^|[^a-z0-9])lock(?:[^a-z0-9]|$)|(?:^|[^a-z0-9])(?:agents?|claude|gemini|copilot|cursor|codex|command-guard)(?:[^a-z0-9]|$)/iu;
 
@@ -65,7 +65,10 @@ const PUBLIC_TLD = new Set(
   'com org net io dev app ai co gov edu us uk de fr ca eu jp sh me'.split(' '),
 );
 const BLOCKED =
-  /(?:^|\.)(?:1u\.ms|rbndr\.us|rebind\.network|rebinder\.net|nip\.direct|nip\.name|xip\.name|xip\.io|nip\.io|sslip\.io|vcap\.me|localdev\.me|lvh\.me|local\.gd|localtest\.me|lacolhost\.com|traefik\.me|fuf\.me|fbi\.com)$/u;
+  /(?:^|\.)(?:1u\.ms|rbndr\.us|rebind\.network|rebinder\.net|nip\.direct|nip\.name|xip\.name|xip\.io|nip\.io|sslip\.io|vcap\.me|localdev\.me|lvh\.me|local\.gd|localtest\.me|lacolhost\.com|traefik\.me|fuf\.me|fbi\.com|ngrok\.io|0cf\.io|nip\.sh|sslip\.me)$/u;
+// Sophie's ruling: an all-digit label, a leading zero (octal `0177`, hex
+// `0x7f`) keeps main's verdict.
+const NUMERIC = /(?:^|\.)(?:\d+|0[a-z0-9-]*)(?:\.|$)/u;
 const OCTET = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)';
 const EMBEDDED_V4 = new RegExp(
   `(?:^|[.-])${OCTET}(?:[.-]${OCTET}){3}(?:[.-]|$)|(?:^|[.-])[0-9a-f]{8}(?:[.-]|$)`,
@@ -86,6 +89,7 @@ export function isPublicUrl(url: string): boolean {
     labels.every(label => LABEL.test(label)) &&
     PUBLIC_TLD.has(labels[labels.length - 1]) &&
     !BLOCKED.test(host) &&
+    !NUMERIC.test(host) &&
     !EMBEDDED_V4.test(host)
   );
 }
