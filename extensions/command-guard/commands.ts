@@ -160,6 +160,6 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
   }
 
   // A flag line for rules that keep chains feeding a shell prompting.
-  if (segments.some(runsStdinShell)) lines.push('__stdin_shell__');
+  if (runsStdinShell(segments)) lines.push('__stdin_shell__');
   return {canonical: lines.join('\n'), decisions};
 }

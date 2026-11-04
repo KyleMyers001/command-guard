@@ -48,6 +48,10 @@ test('Codex P1 4464014027 and wrappers with arguments keep prompting', async t =
       'git merge feat/x; cat s | nice -n 5 sh',
       'rm -rf dist; cat s | stdbuf -o0 bash',
       'rm -rf dist; cat script.sh | b{a..a}sh',
+      'rm -rf dist; cat s | { true; bash; }',
+      'rm -rf dist; cat s | (true; bash)',
+      'git merge feat/x; cat s | { true; (echo; { sh; }); }',
+      'rm -rf dist; while read; do bash; done < f',
       'git config user.name; cat s | timeout -s KILL 30 env -u X "$S"',
     ],
     fixture(t),
@@ -77,6 +81,8 @@ const FEEDS = [
   (c: string) => `${c} <<<'echo hi'`,
   (c: string) => `${c} < s.sh`,
   (c: string) => `${c} <(cat s)`,
+  (c: string) => `cat s | { true; ${c}; }`,
+  (c: string) => `cat s | (true; ${c})`,
 ];
 
 test('generated class x wrapper x shell x feed sweep keeps prompting', async t => {

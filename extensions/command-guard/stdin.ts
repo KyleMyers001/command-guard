@@ -30,10 +30,14 @@ const SHELLS = new Set([
 ]);
 const STDIN_FILE = /^\/(?:dev\/stdin|dev\/fd\/0|proc\/self\/fd\/0)$/u;
 
-// Coarse and fail-closed: a stdin-fed command that names a shell anywhere,
-// behind any wrapper and its arguments, or that holds an expansion which
-// could become one, may run piped input as a script.
-export function runsStdinShell(segment: Word[]): boolean {
-  const isFed = fed.has(segment) || segment.some(w => STDIN_FILE.test(w.text));
-  return isFed && segment.some(w => w.dynamic || SHELLS.has(basename(w.text)));
+// Coarse and fail-closed: when any command in the chain reads stdin and any
+// command names a shell or holds a dynamic word that could become one, piped
+// input may run as a script. Chains are not split by group or pipeline, so
+// a shell inside `{ ...; }` or `( ... )` that inherits the input counts too.
+export function runsStdinShell(segments: Word[][]): boolean {
+  const isFed = (segment: Word[]): boolean =>
+    fed.has(segment) || segment.some(w => STDIN_FILE.test(w.text));
+  const mayBeShell = (segment: Word[]): boolean =>
+    segment.some(w => w.dynamic || SHELLS.has(basename(w.text)));
+  return segments.some(isFed) && segments.some(mayBeShell);
 }
