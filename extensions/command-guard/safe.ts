@@ -46,11 +46,17 @@ function safeReader(head: string, args: string[]): boolean {
     );
   const flags = READER_FLAGS[head];
   if (!flags) return false;
-  let rest = args;
-  while (rest[0]?.startsWith('-') && flags.test(rest[0])) rest = rest.slice(1);
-  if (head === 'grep')
-    rest = rest[0] && !rest[0].startsWith('-') ? rest.slice(1) : ['-'];
-  return rest.every(relative);
+  // Walk an index: slicing per flag is quadratic on thousands of flags.
+  let at = 0;
+  while (at < args.length && args[at].startsWith('-') && flags.test(args[at]))
+    at++;
+  if (head === 'grep') {
+    // The first non-flag word is the pattern; without one, `-` is not a path.
+    if (args[at] && !args[at].startsWith('-')) at++;
+    else return false;
+  }
+  for (; at < args.length; at++) if (!relative(args[at])) return false;
+  return true;
 }
 
 function safeGit(args: string[]): boolean {

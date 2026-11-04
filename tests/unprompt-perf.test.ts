@@ -85,3 +85,40 @@ for (const [name, unit] of UNITS)
         `${name} ${kb} KB: ${ours.toFixed(0)} ms vs main ${base.toFixed(0)} ms`,
       );
     });
+
+// Codex P1 4470197249: a safe-list reader after a class command was
+// classified in quadratic time because each accepted flag copied the rest of
+// the arguments. Each shape is `git config user.name; <reader> <flags>`
+// repeated to 64 KB and 128 KB, run through the same ratio as above.
+const SAFE_READER_SHAPES: [string, string, string][] = [
+  ['sort', 'sort ', '-r '],
+  ['wc', 'wc ', '-l '],
+  ['grep', 'grep ', '-i '],
+  ['ls', 'ls ', '-l '],
+  ['head', 'head -n 1 ', 'f '],
+  ['tail', 'tail -n 1 ', 'f '],
+  ['cat', 'cat ', 'f '],
+  ['jq', 'jq . ', 'f '],
+  ['git status', 'git status ', '-s '],
+  ['git log', 'git log ', '--oneline '],
+  ['git log -n', 'git log ', '-n 1 '],
+];
+for (const [name, head, unit] of SAFE_READER_SHAPES)
+  for (const kb of [64, 128])
+    test(`whole guard within ${LIMIT}x main: safe list ${name} at ${kb} KB`, async t => {
+      const cwd = fixture(t);
+      const tail = name === 'grep' ? 'x' : '';
+      const command =
+        'git config user.name; ' +
+        head +
+        unit.repeat(Math.ceil((kb * 1024) / unit.length)) +
+        tail;
+      await time(pr, 'ls', cwd);
+      await time(main, 'ls', cwd);
+      const {base, ours} = await ratio(command, cwd);
+      t.diagnostic(`main ${base.toFixed(0)} ms, PR ${ours.toFixed(0)} ms`);
+      assert.ok(
+        ours <= LIMIT * base,
+        `safe list ${name} ${kb} KB: ${ours.toFixed(0)} ms vs main ${base.toFixed(0)} ms`,
+      );
+    });
