@@ -63,6 +63,8 @@ test('named pipe-to-shell chains keep asking', async t => {
       'rm -rf dist; while true; do sh <<<x; done',
       'rm -rf dist; (bash < s.sh)',
       'rm -rf dist; ! bash < s.sh',
+      "rm -rf dist; cat script.sh | bash --rcfile '/tmp/a b'",
+      'rm -rf dist; cat s | bash -O "x y" -s',
       'rm -rf dist; cat script.sh | timeout 30 bash',
       'git merge feat/x; cat s | stdbuf -oL sh',
       'rm -rf dist; cat s | setsid -w bash -s',
