@@ -173,7 +173,8 @@
       "BashRegex(<<[\\s\\S]*?[;&|(\\n]\\s*(?:/usr/bin/|/bin/|\\\\)?curl\\b[^;&|\\n]*\\s(?:-[a-zA-Z]*o|--output)[=\\s]+(?!/dev/null))",
       "BashRegex(^(?:[^'\"\\\\$]|\\$(?!')|\\\\[\\s\\S]|\\$'(?:[^'\\\\]|\\\\[\\s\\S])*'|'[^']*'|\"(?:[^\"\\\\]|\\\\[\\s\\S])*\")*(?:\\$'(?:[^'\\\\]|\\\\[\\s\\S])*|'[^']*|\"(?:[^\"\\\\]|\\\\[\\s\\S])*)[;&|(\\n]\\s*(?:/usr/bin/|/bin/|\\\\)?(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?[\\w:-]*migrat)",
       "BashRegex(<<[\\s\\S]*?[;&|(\\n]\\s*(?:/usr/bin/|/bin/|\\\\)?(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?[\\w:-]*migrat)",
-      "BashRegex(^(?=[\\s\\S]*?(?:^|\\n)__curl_sends__(?:\\n|$))(?:(?=[\\s\\S]*?(?:(?<![\\w.-])(?:rm|merge|config|checkout|graphql)(?![\\w-])|migrat))|(?=[\\s\\S]*?(?<![\\w.-])curl(?![\\w-]))(?=[\\s\\S]*?[ \\t\\x27\\x22](?:-[a-zA-Z]*o|--output)(?![\\w-]))))"
+      "BashRegex(^(?=[\\s\\S]*?(?:^|\\n)__curl_sends__(?:\\n|$))(?:(?=[\\s\\S]*?(?:(?<![\\w.-])(?:rm|merge|config|checkout|graphql)(?![\\w-])|migrat))|(?=[\\s\\S]*?(?<![\\w.-])curl(?![\\w-]))(?=[\\s\\S]*?[ \\t\\x27\\x22](?:-[a-zA-Z]*o|--output)(?![\\w-]))))",
+      "BashRegex(^(?=[\\s\\S]*?(?:^|\\n)__out_redirect__(?:\\n|$))(?:(?=[\\s\\S]*?(?:(?<![\\w.-])(?:rm|merge|config|checkout|graphql)(?![\\w-])|migrat))|(?=[\\s\\S]*?(?<![\\w.-])curl(?![\\w-]))(?=[\\s\\S]*?[ \\t\\x27\\x22](?:-[a-zA-Z]*o|--output)(?![\\w-]))))"
     ]
   }
 }

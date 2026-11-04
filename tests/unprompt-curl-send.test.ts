@@ -64,3 +64,11 @@ test('generated class x option prefix x separator sweep keeps prompting', async 
         }
   assert.deepEqual(allowed, []);
 });
+
+test('Codex P1 4464443086: --expand- spellings keep prompting', async t => {
+  await expectVerdicts(
+    'ASK',
+    LONG.map(option => `rm -rf dist; curl --expand-${option} x https://x.test`),
+    fixture(t),
+  );
+});

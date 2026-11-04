@@ -29,7 +29,11 @@ function sends(word: Word, afterOption: boolean): boolean {
   if (!text.startsWith('-') || text === '-' || text === '--') return false;
   if (word.dynamic || /[@<]/u.test(text)) return true;
   if (text.startsWith('--')) {
-    const name = text.slice(2).split('=')[0];
+    // `--expand-` (curl 8.3+) keeps the option's meaning.
+    const name = text
+      .slice(2)
+      .split('=')[0]
+      .replace(/^expand-/u, '');
     return name.length >= 3 && SENDS.some(option => option.startsWith(name));
   }
   return SHORT_SENDS.test(text);

@@ -14,6 +14,7 @@ export interface Word {
 }
 
 import {type Heredoc, skipHeredocs} from './heredoc.ts';
+import {noteOutput, noteOutputProcess} from './redirect.ts';
 import {markStdin} from './stdin.ts';
 
 // Nesting this deep is never legitimate; the guard fails closed on the error.
@@ -48,12 +49,16 @@ function scanCommands(
   // process substitution, whose commands read or write a pipe.
   let fed = false;
   let procSub = false;
+  // The operator of an output redirection whose target word comes next.
+  let output: string | undefined;
 
   const current = (): Word => (word ??= {text: '', dynamic: false});
 
   function endWord(): void {
     if (!word) return;
 
+    if (output !== undefined) noteOutput(output, word);
+    output = undefined;
     if (redirect === 'heredoc')
       heredocs.push({delimiter: word.text, stripTabs});
     else if (redirect === 'none') segment.push(word);
@@ -64,6 +69,8 @@ function scanCommands(
 
   function endSegment(pipeAfter = false): void {
     endWord();
+    if (output !== undefined) noteOutput(output, undefined);
+    output = undefined;
     redirect = 'none';
     if (segment.length > 0) {
       if (fed) markStdin(segment);
@@ -132,6 +139,9 @@ function scanCommands(
       fed ||= operator.includes('<');
       procSub = text[i] === '(';
       if (procSub) fed = true;
+      const writes = operator.includes('>');
+      if (writes && procSub) noteOutputProcess();
+      else if (writes) output = operator;
     } else if (char === '|' && next === '|') {
       endSegment();
       i += 2;

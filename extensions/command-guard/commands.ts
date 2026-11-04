@@ -5,6 +5,7 @@ import {expandScripts} from './scripts.ts';
 import {spell, spellDynamic} from './spelling.ts';
 import {runsStdinShell} from './stdin.ts';
 import {curlMaySend} from './curl.ts';
+import {outputRedirects} from './redirect.ts';
 import {parseSegments, type Word} from './shell.ts';
 
 // Decisions made from a command's decoded arguments rather than its text.
@@ -111,6 +112,7 @@ function workdirsAfter(
 
 export function analyzeCommand(command: string, cwd: string): Analysis {
   const lines: string[] = [];
+  const outputsBefore = outputRedirects();
   const {segments, decisions} = expandScripts(parseSegments(command));
   let workdirs: string[] | undefined = [cwd];
 
@@ -163,5 +165,6 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
   // A flag line for rules that keep chains feeding a shell prompting.
   if (runsStdinShell(segments)) lines.push('__stdin_shell__');
   if (curlMaySend(segments)) lines.push('__curl_sends__');
+  if (outputRedirects() > outputsBefore) lines.push('__out_redirect__');
   return {canonical: lines.join('\n'), decisions};
 }
