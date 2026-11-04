@@ -4,6 +4,7 @@ import {classifyHelm, classifyKubectl} from './kube.ts';
 import {expandScripts} from './scripts.ts';
 import {spell, spellDynamic} from './spelling.ts';
 import {runsStdinShell} from './stdin.ts';
+import {curlMaySend} from './curl.ts';
 import {parseSegments, type Word} from './shell.ts';
 
 // Decisions made from a command's decoded arguments rather than its text.
@@ -161,5 +162,6 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
 
   // A flag line for rules that keep chains feeding a shell prompting.
   if (runsStdinShell(segments)) lines.push('__stdin_shell__');
+  if (curlMaySend(segments)) lines.push('__curl_sends__');
   return {canonical: lines.join('\n'), decisions};
 }
