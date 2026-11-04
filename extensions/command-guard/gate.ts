@@ -84,6 +84,18 @@ function scan(text: string): {plain: string; live: string} | undefined {
 
 const texts = (segment: Word[]): string[] => segment.map(word => word.text);
 
+// P16-F3 (Sophie): a segment that is a bare `git`, or whose command word is
+// option-like (`-C`), is a mis-parse waiting to happen: the canonical text
+// joins lines with a newline, so `git; -C x merge main` reads as one
+// `git -C x merge`. The command then keeps main's verdict.
+export const strayGit = (parsed: Word[][]): boolean =>
+  parsed.some(
+    list =>
+      list.length > 0 &&
+      (list[0].text.startsWith('-') ||
+        (list.length === 1 && basename(list[0].text) === 'git')),
+  );
+
 export function chainUnsafe(
   command: string,
   parsed: Word[][],

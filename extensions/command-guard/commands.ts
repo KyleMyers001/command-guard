@@ -4,7 +4,7 @@ import {classifyHelm, classifyKubectl} from './kube.ts';
 import {expandScripts} from './scripts.ts';
 import {spell, spellDynamic} from './spelling.ts';
 import {carriedClasses} from './carrier.ts';
-import {chainUnsafe, mentionsClass} from './gate.ts';
+import {chainUnsafe, mentionsClass, strayGit} from './gate.ts';
 import {outputRedirects} from './redirect.ts';
 import {parseSegments, type Word} from './shell.ts';
 
@@ -167,9 +167,13 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
   // EL-115 PR6: the class exemptions apply only when this line is absent.
   // Any class word in the raw or canonical text (CR F1) means the command
   // must prove itself safe; otherwise the ask rule keeps main's verdict.
+  // A bare `git` or an option-like command word (`git; -C x merge main`)
+  // also counts: the canonical lines join with a newline, which the text
+  // rules read as the whitespace of one `git -C x merge` (P16-F3).
   if (
-    mentionsClass(command, lines.join('\n')) &&
-    chainUnsafe(command, parsed, segments, wroteOutput)
+    strayGit(parsed) ||
+    (mentionsClass(command, lines.join('\n')) &&
+      chainUnsafe(command, parsed, segments, wroteOutput))
   )
     lines.push('__chain_unsafe__', carriedClasses(command));
   return {canonical: lines.join('\n'), decisions};

