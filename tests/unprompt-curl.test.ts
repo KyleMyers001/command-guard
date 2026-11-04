@@ -2,8 +2,8 @@ import test from 'node:test';
 import {fixture} from './helpers/fixtures.ts';
 import {expectVerdicts} from './helpers/verdict.ts';
 
-// EL-115 PR6: `curl -o` of a plain http(s) URL to a path inside the repo or
-// /tmp no longer prompts when it is the last command. Pipes to a shell,
+// EL-115 PR6: `curl -o` of a public http(s) URL to a plain repo-relative
+// path no longer prompts (Sophie's CR5/CR6 rulings). Pipes to a shell,
 // uploads, other output paths, config files and anything dynamic keep their
 // main verdicts. Verdicts come from the shipped policy; nothing is executed.
 test('curl -o to a safe path is allowed', async t => {
@@ -13,20 +13,15 @@ test('curl -o to a safe path is allowed', async t => {
       'curl -o out.bin https://x.test/a.bin',
       'curl -o ./out.bin https://x.test/a.bin',
       'curl -o dl/x.zip https://x.test/x.zip',
-      'curl -o /tmp/x.tgz https://x.test/x.tgz',
-      'curl -o /tmp/sub/dir/x.tgz http://x.test/x.tgz',
       'curl -sSLo install.sh https://x.test/i.sh',
-      'curl -fsSL -o /tmp/x.tgz https://x.test/x.tgz',
       'curl -s -S -L -f -o a.json https://x.test/a',
       'curl --silent --location --fail --output dl/x.zip https://x.test/x.zip',
-      'curl --output=/tmp/a.json https://x.test/a?b=1',
       'curl -sS https://x.test/a -o a.json',
       "curl -o a.json 'https://x.test/a?b=1&c=2'",
       'curl -o a.json "https://x.test/a?b=1&c=2"',
       'curl --retry 3 --max-time 30 -o a.json https://x.test/a',
       'curl -o a https://x.test/a -o b https://x.test/b',
       'mkdir -p dl && curl -o dl/x https://x.test/x',
-      'git status && curl -fsSLo /tmp/x https://x.test/x',
       'curl -o /dev/null https://x.test',
       'curl -s https://x.test -o /dev/null',
     ],

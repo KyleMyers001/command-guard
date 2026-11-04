@@ -669,6 +669,8 @@ const policyExamples = {
     ['write', '~/Library/LaunchAgents/x.plist'],
   ],
   ask: [
+    // EL-115 PR6: only the bare `rm` spelling is a class atom.
+    ['bash', '/bin/rm -rf build'],
     ['bash', 'rm -rf src'],
     ['bash', 'rm -fr docs'],
     ['bash', 'rm -Rf lib'],
@@ -833,7 +835,6 @@ const policyExamples = {
     ['bash', 'rm -fr build'],
     ['bash', 'rm -Rf build'],
     ['bash', 'rm -r build'],
-    ['bash', '/bin/rm -rf build'],
     ['bash', 'crontab -l'],
     ['bash', 'npm install left-pad'],
     ['bash', 'cat .envrc.md'],

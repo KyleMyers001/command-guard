@@ -34,8 +34,16 @@ function globMatches(pattern: string, text: string): boolean {
 
 // Rules are written for one-line commands with single spaces. Join
 // backslash-newline continuations and collapse runs of spaces and tabs.
+// Every rule reads the same few texts, so the last results are kept.
+const flatCache = new Map<string, string>();
 function flattened(command: string): string {
-  return command.replace(/\\\r?\n/gu, ' ').replace(/[ \t]+/gu, ' ');
+  let flat = flatCache.get(command);
+  if (flat === undefined) {
+    flat = command.replace(/\\\r?\n/gu, ' ').replace(/[ \t]+/gu, ' ');
+    if (flatCache.size >= 4) flatCache.clear();
+    flatCache.set(command, flat);
+  }
+  return flat;
 }
 
 // `commands` holds the command as written and its canonical spelling.

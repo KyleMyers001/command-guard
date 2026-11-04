@@ -4,7 +4,16 @@ import type {
   ExtensionContext,
   ToolCallEvent,
 } from '@earendil-works/pi-coding-agent';
+import {tmpdir} from 'node:os';
 import {createCommandGuard} from '../../extensions/command-guard.ts';
+import {
+  curlrcRiskyIn,
+  setCurlrcCheck,
+} from '../../extensions/command-guard/curl.ts';
+
+// Never the real home directory: a home that does not exist has no curlrc.
+const fixtureHome = resolve(tmpdir(), `cg-no-home-${process.pid}`);
+setCurlrcCheck(() => curlrcRiskyIn({HOME: fixtureHome}));
 
 export type Verdict = 'ALLOW' | 'ASK' | 'DENY';
 

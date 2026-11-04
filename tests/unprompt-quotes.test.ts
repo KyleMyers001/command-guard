@@ -42,7 +42,6 @@ test('quotes that hold no command separator do not change the exemptions', async
       "rm -rf dist && echo 'a;b'",
       'echo "x y" ; git merge feat/x',
       "git merge -m 'a b' feat/x",
-      "bash -c 'rm -rf dist'",
     ],
     fixture(t),
   );

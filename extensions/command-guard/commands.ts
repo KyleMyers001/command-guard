@@ -3,7 +3,7 @@ import {classifyGit, withoutGitGlobals} from './git.ts';
 import {classifyHelm, classifyKubectl} from './kube.ts';
 import {expandScripts} from './scripts.ts';
 import {spell, spellDynamic} from './spelling.ts';
-import {chainUnsafe, isClassAtom} from './chain.ts';
+import {chainUnsafe, classish} from './chain.ts';
 import {outputRedirects} from './redirect.ts';
 import {parseSegments, type Word} from './shell.ts';
 
@@ -113,12 +113,13 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
   const lines: string[] = [];
   const outputsBefore = outputRedirects();
   const parsed = parseSegments(command);
-  // Without a class atom no exemption applies, and the line would only
-  // disturb rules that read the whole text, such as the exfil exemptions.
-  const unsafe =
-    parsed.some(segment => isClassAtom(segment.map(word => word.text))) &&
-    chainUnsafe(command, parsed, outputRedirects() > outputsBefore);
+  const wroteOutput = outputRedirects() > outputsBefore;
   const {segments, decisions} = expandScripts(parsed);
+  // Without a class atom (in any spelling) no exemption applies, and the line
+  // would only disturb rules that read the whole text, such as exfil's.
+  const unsafe =
+    segments.some(segment => classish(segment.map(word => word.text))) &&
+    chainUnsafe(command, parsed, segments, wroteOutput);
   let workdirs: string[] | undefined = [cwd];
 
   for (const segment of segments) {
