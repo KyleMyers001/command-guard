@@ -80,6 +80,9 @@ test('forced, dynamic and path forms keep main verdicts', async t => {
       'git -C "$REPO" checkout main',
       'git checkout --det README.md',
       'git checkout -d README.md',
+      "git checkout --detach --quiet$(printf ' --force') release.v1",
+      'git checkout --detach $OPTS release.v1',
+      'git checkout "--detach$X" release.v1',
     ],
     cwd,
   );

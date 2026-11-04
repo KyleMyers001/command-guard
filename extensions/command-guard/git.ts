@@ -196,13 +196,13 @@ function classifyCheckout(
 
   // `--detach` never takes a path: Git refuses `--detach README.md`, so a
   // literal operand can only be a commit and nothing in the tree is at risk.
-  // A dynamic word could still expand to `-f` or `--`, and a Git directory or
+  // Any dynamic word could still expand to `-f`/`--force` or `--`, and a Git directory or
   // work tree that cannot be established may be anywhere, so those ask.
   if (
     plainGlobals &&
     workdirs &&
     !createsBranch &&
-    !operand.dynamic &&
+    !args.some(arg => arg.dynamic) &&
     args.some(isDetach)
   )
     return [];
