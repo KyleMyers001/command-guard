@@ -58,6 +58,15 @@ test('named pipe-to-shell chains keep asking', async t => {
       'git config core.editor | sh',
       'git config user.name | sh',
       'rm -rf dist && bash <<EOF\necho hi\nEOF',
+      'rm -rf dist; if true; then bash <<EOF\necho hi\nEOF\nfi',
+      'git merge feat/x; if true; then bash < script.sh; fi',
+      'rm -rf dist; while true; do sh <<<x; done',
+      'rm -rf dist; (bash < s.sh)',
+      'rm -rf dist; ! bash < s.sh',
+      'rm -rf dist; { bash < s.sh; }',
+      'rm -rf dist; cat script.sh | bash /dev/stdin',
+      'rm -rf dist; cat script.sh | bash /dev/fd/0 arg',
+      'rm -rf dist; cat script.sh | sh /proc/self/fd/0',
       'git merge feat/x && bash <(cat x.sh)',
       "rm -rf dist; 'zsh' <<<'echo hi'",
       'sh <<EOF\necho hi\nEOF && git config user.name',
@@ -101,4 +110,11 @@ test('a shell fed on its own keeps main verdict', async t => {
     ],
     fixture(t),
   );
+});
+
+test('repeated shell value options stay linear', async t => {
+  const cmd = `rm -rf dist; cat s | bash ${'--rcfile '.repeat(5000)}-s arg`;
+  const start = Date.now();
+  assert.equal(await verdict(cmd, fixture(t)), 'ASK');
+  assert.ok(Date.now() - start < 2000);
 });
