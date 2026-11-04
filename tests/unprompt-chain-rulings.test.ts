@@ -58,6 +58,26 @@ test('a nested shell or eval anywhere keeps main verdicts (ruling 1)', async t =
   await notAllowed([...commands, ...ATOMS.flatMap(wraps)], fixture(t));
 });
 
+test('remote, container and piped shells carrying a class keep main verdicts', async t => {
+  const q = (atom: string) => atom.replaceAll("'", "'\\''");
+  const carriers = (atom: string) => [
+    `ssh h '${q(atom)}'`,
+    `ssh h 'echo hi; ${q(atom)}; echo'`,
+    `ssh h '(a; ${q(atom)})'`,
+    `ssh h <<EOF\n${atom}\nEOF`,
+    `ssh h <<'EOF'\necho\n${atom}\nEOF`,
+    `cat <<E | sh\n${atom}\nE`,
+    `su -c '${q(atom)}'`,
+    `docker exec c ${atom}`,
+    `podman exec -it c ${atom}`,
+    `kubectl exec p -- ${atom}`,
+    `nsenter -t 1 -m ${atom}`,
+    `chroot /srv ${atom}`,
+  ];
+  await notAllowed(ATOMS.flatMap(carriers), fixture(t));
+  await expectVerdicts('ALLOW', ['ssh h uptime'], fixture(t));
+});
+
 test('wrapped or path-qualified atoms are not atoms (ruling 2, Codex 4465238076)', async t => {
   const prefixes = [
     '/usr/bin/',

@@ -3,6 +3,7 @@ import {curlWrites, curlrcRisky, isCurlDownload} from './curl.ts';
 import {isSafe, filters} from './safe.ts';
 import {isFed} from './stdin.ts';
 import type {Word} from './shell.ts';
+import {carriesCommand} from './carrier.ts';
 
 // EL-115 PR6 chain gate (Sophie's rulings). The seven class exemptions may
 // loosen a command only when it is provably safe: every simple command is a
@@ -18,7 +19,7 @@ const RISKY_TEXT =
 // Steps that change what a relative path names (kept from 10df0fe's rules).
 const MOVES_DIR =
   /(?<![\w./-])(?:cd|pushd|popd|chdir|chroot|source|eval)(?![\w.-])|(?:^|[;&|(\n{]|then|do|else)\s*(?:(?:builtin|command)\s+)?\.(?=\s)|\s-C(?![\w-])|--chdir/u;
-const SHELLS = new Set([
+export const SHELLS = new Set([
   'bash',
   'sh',
   'zsh',
@@ -173,7 +174,8 @@ export function chainUnsafe(
     words.some(
       list =>
         normalize(list)[0] === '.' ||
-        list.some(word => SHELLS.has(basename(word))),
+        list.some(word => SHELLS.has(basename(word))) ||
+        carriesCommand(list),
     )
   )
     return true;

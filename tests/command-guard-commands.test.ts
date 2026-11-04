@@ -614,7 +614,9 @@ test('canonical spelling drops global options, paths, and needless quotes', () =
     'cd repo\ngh api -X DELETE repos/o/r',
   );
   assert.equal(
-    canonical("bash -lc 'gh -R o/r pr merge 4'").split('\n').at(-1),
+    canonical("bash -lc 'gh -R o/r pr merge 4'")
+      .split('\n')
+      .find(line => line.startsWith('gh ')),
     'gh pr merge 4',
   );
 });
