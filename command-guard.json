@@ -106,7 +106,7 @@
       "Edit(//**/.pre-commit-config.yaml)"
     ],
     "ask": [
-      "BashRegex((^|[;&|(\\s/])rm(?!(?<=(?:^|[;&|(\\n])\\s*(?:/usr/bin/|/bin/|\\\\)?rm)(?<![\\s\\S]*(?:(?<![\\w./-])(?:cd|pushd|popd|chdir|chroot)(?![\\w.-])|\\s-C(?![\\w-])|--chdir)[\\s\\S]*)(?:\\s+(?:-[rRfv]+|--recursive|--force|--verbose))+(?:\\s+(?:\\./)?(?:[\\w@-][\\w.@-]*/)*(?:dist|build|out|target|node_modules|\\.next|coverage))+\\s*(?=$|[;&|\\n)]))\\s+(-\\w+\\s+|--[\\w-]+\\s+)*(-\\w*[rR]\\w*|--recursive)\\b)",
+      "BashRegex((^|[;&|(\\s/])rm(?!(?<=(?:^|[;&|(\\n])\\s*(?:/usr/bin/|/bin/|\\\\)?rm)(?<![\\s\\S]*(?:(?<![\\w./-])(?:cd|pushd|popd|chdir|chroot)(?![\\w.-])|\\s-C(?![\\w-])|--chdir)[\\s\\S]*)(?:\\s+(?:-[rRfv]+|--recursive|--force|--verbose))+(?:\\s+(?:\\./)?(?:dist|build|out|target|node_modules|\\.next|coverage))+\\s*(?=$|[;&|\\n)]))\\s+(-\\w+\\s+|--[\\w-]+\\s+)*(-\\w*[rR]\\w*|--recursive)\\b)",
       "BashRegex((^|[;&|(\\s])find\\b[^;&|\\n]*\\s-delete\\b)",
       "BashRegex((^|[;&|(\\s])find\\b[^;&|\\n]*\\s-(exec|execdir|ok|okdir)\\s+(\\S*/)?(rm|mv|shred|truncate|chmod|chown|dd|sh|bash|zsh)\\b)",
       "BashRegex((^|[;&|(\\s])xargs\\s[^;&|\\n]*\\b(rm|shred)\\b)",

@@ -232,8 +232,10 @@ exemption is a positive grammar, so any extra option, quote, expansion, glob, or
 path outside it keeps the original ask. Denies are never narrowed.
 
 - `rm -r`/`rm -rf` of `dist`, `build`, `out`, `target`, `node_modules`, `.next`,
-  or `coverage`, given as relative paths with no `..`, quoting, glob, or trailing
-  slash (GNU `rm -rf link/` follows a symlink and empties its target). A
+  or `coverage`, given as a bare name (optionally `./`) with no directory part,
+  `..`, quoting, glob, or trailing slash. GNU `rm -rf link/` follows a symlink and
+  empties its target, and `rm -rf link/dist` crosses a symlinked ancestor, so
+  `packages/app/dist` still asks. A
   directory change anywhere earlier in the command (`cd`, `pushd`, `git -C`,
   `env -C`) restores the ask.
 - `gh api graphql` with literal single-quoted `query=` text that does not contain

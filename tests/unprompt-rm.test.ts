@@ -23,8 +23,6 @@ test('rm -r of a named build directory in the repo is allowed', async t => {
       'rm -rfv dist',
       'rm -r -f dist build',
       'rm -rf dist build out target node_modules .next coverage',
-      'rm -rf packages/app/dist',
-      'rm -rf @scope/pkg/build',
       'rm -rf dist && npm run build',
       'rm -rf dist; tsc',
       'npm ci && rm -rf dist | cat',
@@ -76,6 +74,13 @@ test('rm -r of anything else still asks or denies as on main', async t => {
       'rm -rf dist*',
       'rm -rf dist/*',
       'rm -rf d{i,}st',
+      // An operand with a directory part may cross a symlinked ancestor that
+      // points outside the repository, so only a bare build directory is exempt.
+      'rm -rf packages/app/dist',
+      'rm -rf linked/dist',
+      'rm -rf @scope/pkg/build',
+      'rm -rf ./linked/dist',
+      'rm -rf a/b/node_modules',
       // A trailing slash makes GNU rm follow a symlinked dist and empty its target.
       'rm -rf dist/',
       'rm -rf ./dist/',
