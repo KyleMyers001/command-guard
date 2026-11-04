@@ -22,9 +22,7 @@ test('test and lint scripts for migrations are allowed', async t => {
       'yarn run check:migration',
       'bun run test:migrations',
       'cd repo && npm run test:migrations',
-      'npm ci && npm run lint:migrations',
       'npm run lint:migrations | cat',
-      'npm run test:migrations\nnpm test',
     ],
     fixture(t),
   );

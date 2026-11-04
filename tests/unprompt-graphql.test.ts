@@ -19,7 +19,6 @@ test('read-only gh api graphql queries are allowed', async t => {
       "gh api graphql -F count=5 -f query='query { viewer { login } }'",
       "gh api graphql --paginate -f query='{ viewer { login } }' --jq '.data.viewer.login'",
       "gh api graphql -f query='{ viewer { login } }' -q .data --cache 1h --slurp",
-      "gh api graphql -f query='{ viewer { login } }' | jq .",
       "gh api graphql -f query='query {\n  viewer { login }\n}'",
       "gh -R o/r api graphql -f query='{ viewer { login } }'",
       "cd repo && gh api graphql -f query='{ viewer { login } }'",

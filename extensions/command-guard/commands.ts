@@ -3,8 +3,7 @@ import {classifyGit, withoutGitGlobals} from './git.ts';
 import {classifyHelm, classifyKubectl} from './kube.ts';
 import {expandScripts} from './scripts.ts';
 import {spell, spellDynamic} from './spelling.ts';
-import {runsStdinShell} from './stdin.ts';
-import {curlMaySend} from './curl.ts';
+import {chainUnsafe, isClassAtom} from './chain.ts';
 import {outputRedirects} from './redirect.ts';
 import {parseSegments, type Word} from './shell.ts';
 
@@ -113,7 +112,13 @@ function workdirsAfter(
 export function analyzeCommand(command: string, cwd: string): Analysis {
   const lines: string[] = [];
   const outputsBefore = outputRedirects();
-  const {segments, decisions} = expandScripts(parseSegments(command));
+  const parsed = parseSegments(command);
+  // Without a class atom no exemption applies, and the line would only
+  // disturb rules that read the whole text, such as the exfil exemptions.
+  const unsafe =
+    parsed.some(segment => isClassAtom(segment.map(word => word.text))) &&
+    chainUnsafe(command, parsed, outputRedirects() > outputsBefore);
+  const {segments, decisions} = expandScripts(parsed);
   let workdirs: string[] | undefined = [cwd];
 
   for (const segment of segments) {
@@ -162,9 +167,7 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
     if (spelledDynamic) lines.push(spelledDynamic);
   }
 
-  // A flag line for rules that keep chains feeding a shell prompting.
-  if (runsStdinShell(segments)) lines.push('__stdin_shell__');
-  if (curlMaySend(segments)) lines.push('__curl_sends__');
-  if (outputRedirects() > outputsBefore) lines.push('__out_redirect__');
+  // EL-115 PR6: the class exemptions apply only when this line is absent.
+  if (unsafe) lines.push('__chain_unsafe__');
   return {canonical: lines.join('\n'), decisions};
 }

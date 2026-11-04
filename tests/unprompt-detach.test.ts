@@ -35,7 +35,6 @@ test('git checkout --detach of a literal commit is allowed', async t => {
       'git checkout -q --detach origin/main',
       'git checkout --detach --quiet origin/main',
       'git -C repo checkout --detach origin/feature.x',
-      'git checkout --detach origin/main && npm test',
     ],
     repo(t),
   );

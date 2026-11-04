@@ -5,7 +5,7 @@ import {fixture} from './helpers/fixtures.ts';
 import {expectVerdicts, verdict} from './helpers/verdict.ts';
 
 const flagged = (command: string): boolean =>
-  analyzeCommand(command, '/').canonical.includes('__out_redirect__');
+  analyzeCommand(command, '/').canonical.includes('__chain_unsafe__');
 
 // EL-115 PR6: the new exemptions apply only to chains without an output
 // redirection, apart from descriptor duplication and /dev/null, /dev/stderr
@@ -51,11 +51,11 @@ test('harmless redirections do not raise the redirect flag', () => {
   ])
     assert.ok(!flagged(command), command);
   for (const command of [
-    'rm x > y',
-    'rm x >&y',
-    'rm x >',
-    'tee >(cat)',
-    'rm x > "$F"',
+    'rm -rf dist > y',
+    'rm -rf dist >&y',
+    'rm -rf dist >',
+    'rm -rf dist; tee >(cat)',
+    'rm -rf dist > "$F"',
   ])
     assert.ok(flagged(command), command);
 });
