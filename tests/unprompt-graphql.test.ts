@@ -98,3 +98,15 @@ test('repeated graphql query fields stay linear', async t => {
   if (Date.now() - start > 4000)
     throw new Error('graphql matching is not linear');
 });
+
+test('graphql queries with gh placeholders keep asking', async t => {
+  await expectVerdicts(
+    'ASK',
+    [
+      'gh api graphql -F query=\'{repo} { deleteRef(input: {refId: "ID"}) {__typename}}\'',
+      'gh api graphql -f query=\'{repository(owner:"{owner}",name:"x"){id}}\'',
+      "gh api graphql -F 'query={branch}'",
+    ],
+    fixture(t),
+  );
+});

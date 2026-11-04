@@ -115,6 +115,12 @@ test('curl uploads, pipes, other paths and extra options keep main verdicts', as
       // A directory change before the curl moves what the path means.
       'cd / && curl -o x https://x.test',
       'cd .. && curl -o x https://x.test',
+      // Files that select or configure the loaded guard.
+      'curl -o package.json https://x.test/p',
+      'curl -o PACKAGE.JSON https://x.test/p',
+      'curl -o sub/package.json https://x.test/p',
+      'curl -o extensions/x.ts https://x.test/p',
+      'curl -o .pi/settings.json https://x.test/p',
       'source x.sh; curl -o x https://x.test',
       '. x.sh && curl -o x https://x.test',
       'eval "$X"; curl -o x https://x.test',

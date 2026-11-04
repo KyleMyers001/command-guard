@@ -239,7 +239,7 @@ path outside it keeps the original ask. Denies are never narrowed.
   directory change anywhere earlier in the command (`cd`, `pushd`, `git -C`,
   `env -C`) restores the ask.
 - `gh api graphql` with literal single-quoted `query=` text that does not contain
-  `mutation`, plus simple variables. `@file`, `--input`, `--hostname`, headers,
+  `mutation` or a `{owner}`/`{repo}`/`{branch}` placeholder, plus simple variables. `@file`, `--input`, `--hostname`, headers,
   `-X`, and any other option still ask.
 - Local `git merge`, except with `--no-verify`, or with a global option other
   than `-C <dir>`, `--no-pager`, `-P`, or `--no-optional-locks` (`-c`,
@@ -251,6 +251,8 @@ path outside it keeps the original ask. Denies are never narrowed.
 - `curl -o`/`--output` of a plain `http(s)` URL to a relative path in the repo or
   a path under `/tmp`, as the last command. Dotfile paths, `..`, upload and
   config options, `-O`, and any command after the download still ask.
+  Targets naming `command-guard`, `package.json`, `extensions/`, or `.pi/` ask,
+  because they can change which guard loads.
 - `npm`/`pnpm`/`yarn`/`bun` scripts named `test:`, `lint:`, or `check:` plus
   `migrate`, `migration`, or `migrations`, run as the start of a command with no
   arguments. Scripts that may apply a migration still ask.
