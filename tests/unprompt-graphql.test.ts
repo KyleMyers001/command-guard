@@ -85,3 +85,16 @@ test('graphql mutations and other forms keep main verdicts', async t => {
     fixture(t),
   );
 });
+
+test('repeated graphql query fields stay linear', async t => {
+  const cwd = fixture(t);
+  const field = "-f query='{viewer{login}}' ";
+  const start = Date.now();
+  await expectVerdicts(
+    'ASK',
+    [`gh api graphql ${field.repeat(60)}--input x`],
+    cwd,
+  );
+  if (Date.now() - start > 4000)
+    throw new Error('graphql matching is not linear');
+});
