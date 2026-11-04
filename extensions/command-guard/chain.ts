@@ -193,6 +193,18 @@ export function chainUnsafe(
     )
   )
     return true;
+  // Bare means as written: `\rm` or `r''m` decode to `rm` but are not bare.
+  const written = command.replace(
+    /\\[\s\S]|'[^']*'|"(?:[^"\\]|\\[\s\S])*"/gu,
+    '_',
+  );
+  const heads = new Map<string, number>();
+  for (const list of words)
+    if (isClassAtom(list)) heads.set(list[0], (heads.get(list[0]) ?? 0) + 1);
+  for (const [head, count] of heads) {
+    const plain = new RegExp(`(?:^|[;&|(\\n])[ \\t]*${head}(?=[ \\t]|$)`, 'gu');
+    if ((written.match(plain)?.length ?? 0) < count) return true;
+  }
   for (let i = 0; i < parsed.length; i++) {
     const segment = parsed[i];
     if (segment.length === 0) continue;

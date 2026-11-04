@@ -86,7 +86,14 @@ test('wrapped or path-qualified atoms are not atoms (ruling 2, Codex 4465238076)
   await notAllowed(commands, fixture(t));
   await expectVerdicts(
     'ASK',
-    ['/bin/rm -rf build', "gh -R o/r api graphql -f query='{a}'"],
+    [
+      '/bin/rm -rf build',
+      '\\rm -rf dist',
+      "r''m -rf dist",
+      '\\curl -sSLo out.json https://x.test/a',
+      "echo ';rm' ; \\rm -rf dist",
+      "gh -R o/r api graphql -f query='{a}'",
+    ],
     fixture(t),
   );
 });
