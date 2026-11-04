@@ -106,7 +106,7 @@
       "Edit(//**/.pre-commit-config.yaml)"
     ],
     "ask": [
-      "BashRegex((^|[;&|(\\s/])rm(?!(?<![\\s\\S]*(?:(?<![\\w./-])(?:cd|pushd|popd|chdir|chroot)(?![\\w.-])|\\s-C(?![\\w-])|--chdir)[\\s\\S]*)(?:\\s+(?:-[rRfv]+|--recursive|--force|--verbose))+(?:\\s+(?:\\./)?(?:[\\w@-][\\w.@-]*/)*(?:dist|build|out|target|node_modules|\\.next|coverage))+\\s*(?=$|[;&|\\n)]))\\s+(-\\w+\\s+|--[\\w-]+\\s+)*(-\\w*[rR]\\w*|--recursive)\\b)",
+      "BashRegex((^|[;&|(\\s/])rm(?!(?<=(?:^|[;&|(\\n])\\s*(?:/usr/bin/|/bin/|\\\\)?rm)(?<![\\s\\S]*(?:(?<![\\w./-])(?:cd|pushd|popd|chdir|chroot)(?![\\w.-])|\\s-C(?![\\w-])|--chdir)[\\s\\S]*)(?:\\s+(?:-[rRfv]+|--recursive|--force|--verbose))+(?:\\s+(?:\\./)?(?:[\\w@-][\\w.@-]*/)*(?:dist|build|out|target|node_modules|\\.next|coverage))+\\s*(?=$|[;&|\\n)]))\\s+(-\\w+\\s+|--[\\w-]+\\s+)*(-\\w*[rR]\\w*|--recursive)\\b)",
       "BashRegex((^|[;&|(\\s])find\\b[^;&|\\n]*\\s-delete\\b)",
       "BashRegex((^|[;&|(\\s])find\\b[^;&|\\n]*\\s-(exec|execdir|ok|okdir)\\s+(\\S*/)?(rm|mv|shred|truncate|chmod|chown|dd|sh|bash|zsh)\\b)",
       "BashRegex((^|[;&|(\\s])xargs\\s[^;&|\\n]*\\b(rm|shred)\\b)",
@@ -135,7 +135,7 @@
       "BashRegex((^|[;&|(\\s])gh\\s+(secret|variable)\\s+(set|delete)\\b)",
       "BashRegex((^|[;&|(\\s])gh\\s+repo\\s+(create|edit|rename|archive)\\b)",
       "BashRegex((^|[;&|(\\s])gh\\s+workflow\\s+(run|enable|disable)\\b)",
-      "BashRegex((^|[;&|(\\s])curl(?!(?<![\\s\\S]*(?:(?<![\\w./-])(?:cd|pushd|popd|chdir|chroot)(?![\\w.-])|\\s-C(?![\\w-])|--chdir)[\\s\\S]*)(?:\\s+(?:(?:-[sSLf]+|--(?:silent|show-error|location|fail|fail-with-body|compressed)|--retry\\s+\\d+|(?:--max-time|-m|--connect-timeout)\\s+\\d+)|(?:-[sSLf]*o\\s+|--output(?:\\s+|=))(?!\\S*[Cc][Oo][Mm][Mm][Aa][Nn][Dd]-[Gg][Uu][Aa][Rr][Dd])(?:/tmp/|(?:\\./)?)(?:[\\w@%+=,][\\w.@%+=,~-]*/)*[\\w@%+=,][\\w.@%+=,~-]*|(?:https?://[\\w.~:/?#%=+@,-]+|'https?://[^'\\s$\\x60\\\\]*'|\"https?://[^\"\\s$\\x60\\\\]*\")))+\\s*$)\\b[^;&|\\n]*\\s(-[a-zA-Z]*o|--output)[=\\s]+(?!/dev/null))",
+      "BashRegex((^|[;&|(\\s])curl(?!(?<=(?:^|[;&|(\\n])\\s*(?:/usr/bin/|/bin/|\\\\)?curl)(?<![\\s\\S]*(?:(?<![\\w./-])(?:cd|pushd|popd|chdir|chroot)(?![\\w.-])|\\s-C(?![\\w-])|--chdir)[\\s\\S]*)(?:\\s+(?:(?:-[sSLf]+|--(?:silent|show-error|location|fail|fail-with-body|compressed)|--retry\\s+\\d+|(?:--max-time|-m|--connect-timeout)\\s+\\d+)|(?:-[sSLf]*o\\s+|--output(?:\\s+|=))(?!\\S*[Cc][Oo][Mm][Mm][Aa][Nn][Dd]-[Gg][Uu][Aa][Rr][Dd])(?:/tmp/|(?:\\./)?)(?:[\\w@%+=,][\\w.@%+=,~-]*/)*[\\w@%+=,][\\w.@%+=,~-]*|(?:https?://[\\w.~:/?#%=+@,-]+|'https?://[^'\\s$\\x60\\\\]*'|\"https?://[^\"\\s$\\x60\\\\]*\")))+\\s*$)\\b[^;&|\\n]*\\s(-[a-zA-Z]*o|--output)[=\\s]+(?!/dev/null))",
       "BashRegex((^|[;&|(\\s])curl\\b[^;&|\\n]*\\s(-[a-zA-Z]*O|--remote-name)\\b)",
       "BashRegex((^|[;&|(\\s])npm\\s+(install|i|add)\\b[^;&|\\n]*\\s(-g|--global)\\b)",
       "BashRegex((^|[;&|(\\s])pip3?\\s+install\\b[^;&|\\n]*--break-system-packages)",

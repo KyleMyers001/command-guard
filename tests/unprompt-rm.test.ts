@@ -91,6 +91,13 @@ test('rm -r of anything else still asks or denies as on main', async t => {
       'rm -rf src; rm -rf dist',
       'rm -rf dist \\\n  src',
       // A directory change anywhere before the rm moves what "dist" means.
+      // Remote, container and privilege wrappers do not run rm on this repo.
+      'ssh production rm -rf build',
+      'docker exec production rm -rf build',
+      'kubectl exec pod -- rm -rf dist',
+      'env rm -rf dist',
+      'nsenter -t 1 -m rm -rf dist',
+      'chroot /srv rm -rf dist',
       'cd .. && rm -rf dist',
       'cd / && rm -rf build',
       'cd ~ && rm -rf node_modules',
