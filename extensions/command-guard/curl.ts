@@ -35,9 +35,10 @@ const PART = /^[A-Za-z0-9_][\w+=,%-]*(?:\.[\w+=,%-]+)*$/u;
 const DATA = /\.(?:json|txt|csv|log|tar|gz|tgz|zip|png|jpe?g|gif|svg|pdf)$/iu;
 const ROOT_NAME =
   /^(?:out|output|download|downloads|data|result|results|response)(?:[._-][A-Za-z0-9._-]*)?$/u;
-// Whole-word names that are build input, policy or config under out dirs.
+// CR on f4d8760: any name holding one of these, anywhere and in any case,
+// may be config, policy, credentials or build input.
 const SENSITIVE =
-  /(?:^|[^a-z0-9])(?:lock|shrinkwrap|policy|guard|config|manifest)(?:[^a-z0-9]|$)/iu;
+  /config|conf|lock|polic|setting|mcp|guard|agent|claude|cursor|rule|secret|cred|token|key|env|manifest|package|shrinkwrap|extensions/iu;
 const MANIFEST =
   /^(?:package|composer|deno|turbo|nx|vercel|renovate|lerna)\.json$|^tsconfig|\.config\.|rc\.json$|(?:^|[^a-z0-9])lock(?:[^a-z0-9]|$)|(?:^|[^a-z0-9])(?:agents?|claude|gemini|copilot|cursor|codex|command-guard)(?:[^a-z0-9]|$)/iu;
 
@@ -49,18 +50,22 @@ export function isRepoOutput(path: string): boolean {
     return false;
   if (!DATA.test(name) || MANIFEST.test(name)) return false;
   // CR on 08bfa8d: at the repo root only output-style names are allowed.
-  if (parts.length === 1) return ROOT_NAME.test(name.replace(DATA, ''));
-  return !SENSITIVE.test(name);
+  if (parts.length === 1)
+    return ROOT_NAME.test(name.replace(DATA, '')) && !SENSITIVE.test(name);
+  return !parts.slice(1).some(part => SENSITIVE.test(part));
 }
 
-// CR F3: a syntactically valid public DNS name over http(s). IP literals,
-// labels that embed an IPv4 address, wildcard-DNS suffixes, local names,
-// credentials and ports-only hosts keep main's verdict. Redirects (-L) and
-// DNS rebinding cannot be resolved statically.
+// CR F3 and the f4d8760 ruling: a valid DNS name over http(s) whose last
+// label is on a public-TLD allowlist. IP literals, single labels, labels
+// that embed an IPv4 address, wildcard-loopback and rebinding domains,
+// credentials and anything malformed keep main's verdict. Redirects (-L)
+// and DNS rebinding cannot be resolved statically.
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
-// Special-use and internal names, and wildcard-loopback domains.
-const WILDCARD =
-  /(?:^|\.)(?:nip\.io|sslip\.io|xip\.io|localtest\.me|lvh\.me|traefik\.me|vcap\.me|lacolhost\.com|localdev\.me|local\.gd|localhost|local|localdomain|test|invalid|example|internal|intranet|lan|home|corp|private|consul|svc|onion|alt|arpa)$/u;
+const PUBLIC_TLD = new Set(
+  'com org net io dev app ai co gov edu us uk de fr ca eu jp sh me'.split(' '),
+);
+const BLOCKED =
+  /(?:^|\.)(?:1u\.ms|rbndr\.us|rebind\.network|rebinder\.net|nip\.direct|nip\.name|xip\.name|xip\.io|nip\.io|sslip\.io|vcap\.me|localdev\.me|lvh\.me|local\.gd|localtest\.me|lacolhost\.com|traefik\.me|fuf\.me|fbi\.com)$/u;
 const OCTET = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)';
 const EMBEDDED_V4 = new RegExp(
   `(?:^|[.-])${OCTET}(?:[.-]${OCTET}){3}(?:[.-]|$)|(?:^|[.-])[0-9a-f]{8}(?:[.-]|$)`,
@@ -79,8 +84,8 @@ export function isPublicUrl(url: string): boolean {
     host.length <= 253 &&
     labels.length >= 2 &&
     labels.every(label => LABEL.test(label)) &&
-    /^(?:[a-z]{2,63}|xn--[a-z0-9-]+)$/u.test(labels[labels.length - 1]) &&
-    !WILDCARD.test(host) &&
+    PUBLIC_TLD.has(labels[labels.length - 1]) &&
+    !BLOCKED.test(host) &&
     !EMBEDDED_V4.test(host)
   );
 }

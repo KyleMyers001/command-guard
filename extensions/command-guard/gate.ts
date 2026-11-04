@@ -142,8 +142,11 @@ export function chainUnsafe(
   for (let i = 0; i < listed.length; i++) {
     // Sophie's final ruling: any segment whose command word is quoted,
     // escaped, continued or expanded keeps main's verdict for the chain.
-    const head = /^\S*/u.exec(spelled[i])?.[0] ?? '';
-    if (head.includes(MARK) || /[$`]/u.test(head)) return true;
+    // A redirection before the command word, or a command word holding a
+    // control or non-ASCII character (CR, TAB, ...), also keeps it.
+    const head = /^[^ ]*/u.exec(spelled[i])?.[0] ?? '';
+    if (/[$`]|[^\x21-\x7e]|^\d*[<>]|^&>/u.test(head)) return true;
+    if (/[^\x21-\x7e]/u.test(listed[i][0])) return true;
     if (
       isClassAtom(listed[i]) &&
       !new RegExp(`^${listed[i][0]}(?:[ \\t]|$)`, 'u').test(spelled[i])
@@ -159,6 +162,9 @@ export function chainUnsafe(
   }
   // Default deny: every command, alone or chained, is an atom or safe-listed.
   return !words.every(
-    list => list.length === 0 || isClassAtom(list) || isSafe(list),
+    list =>
+      list.length === 0 ||
+      isClassAtom(list) ||
+      isSafe(list, listed.length === 1),
   );
 }

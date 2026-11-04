@@ -73,8 +73,13 @@ test('standalone stdin shells and the migration contract keep main verdicts', as
       'cat s | timeout 30 bash',
       'echo hi | xargs -n1 sh -c',
       "printf '%s' 'rm -rf $HOME/*'",
-      "rm -rf dist; printf '%s' 'rm -rf $HOME/*' | cat",
     ],
+    fixture(t),
+  );
+  // Codex 4466711905: a % format in a chain keeps main's verdict.
+  await expectVerdicts(
+    'ASK',
+    ["rm -rf dist; printf '%s' 'rm -rf $HOME/*' | cat"],
     fixture(t),
   );
 });

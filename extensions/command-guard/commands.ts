@@ -4,6 +4,7 @@ import {classifyHelm, classifyKubectl} from './kube.ts';
 import {expandScripts} from './scripts.ts';
 import {spell, spellDynamic} from './spelling.ts';
 import {carriedClasses} from './carrier.ts';
+import {envDumpExfil} from './envdump.ts';
 import {chainUnsafe, mentionsClass} from './gate.ts';
 import {outputRedirects} from './redirect.ts';
 import {parseSegments, type Word} from './shell.ts';
@@ -172,5 +173,6 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
     chainUnsafe(command, parsed, segments, wroteOutput)
   )
     lines.push('__chain_unsafe__', carriedClasses(command));
+  if (envDumpExfil(command, parsed)) lines.push('__env_dump_exfil__');
   return {canonical: lines.join('\n'), decisions};
 }
