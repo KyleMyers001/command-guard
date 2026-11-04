@@ -9,6 +9,8 @@ export interface Word {
   // True when the shell could turn the word into something else: a variable,
   // substitution, glob, brace expansion, or an unterminated quote.
   dynamic: boolean;
+  // True when an expansion other than a plain brace pair made it dynamic.
+  expands?: boolean;
 }
 
 interface Heredoc {
@@ -66,7 +68,7 @@ function scanCommands(
   }
 
   function substitution(from: number, end: ')' | '`'): number {
-    current().dynamic = true;
+    current().dynamic = current().expands = true;
     return scanCommands(text, from, end, out, depth + 1);
   }
 
@@ -86,7 +88,7 @@ function scanCommands(
     } else if (char === "'") {
       const close = text.indexOf("'", i + 1);
       current().text += text.slice(i + 1, close < 0 ? text.length : close);
-      if (close < 0) current().dynamic = true;
+      if (close < 0) current().dynamic = current().expands = true;
       i = close < 0 ? text.length : close + 1;
     } else if (char === '"') {
       i = scanDoubleQuoted(text, i + 1, current(), out, depth);
@@ -133,7 +135,8 @@ function scanCommands(
       const newline = text.indexOf('\n', i);
       i = newline < 0 ? text.length : newline;
     } else {
-      if ('$*?[{'.includes(char)) current().dynamic = true;
+      if ('$*?['.includes(char)) current().dynamic = current().expands = true;
+      else if (char === '{') current().dynamic = true;
       current().text += char;
       i++;
     }
@@ -165,20 +168,20 @@ function scanDoubleQuoted(
       word.text += next;
       i += 2;
     } else if (char === '$' && next === '(') {
-      word.dynamic = true;
+      word.dynamic = word.expands = true;
       i = scanCommands(text, i + 2, ')', out, depth + 1);
     } else if (char === '`') {
-      word.dynamic = true;
+      word.dynamic = word.expands = true;
       i = scanCommands(text, i + 1, '`', out, depth + 1);
     } else {
-      if (char === '$') word.dynamic = true;
+      if (char === '$') word.dynamic = word.expands = true;
       word.text += char;
       i++;
     }
   }
 
   // Unterminated: the shell would keep reading, so the word is not known.
-  word.dynamic = true;
+  word.dynamic = word.expands = true;
   return text.length;
 }
 

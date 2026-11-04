@@ -122,7 +122,7 @@ function withSeparateApiValues(args: Word[]): Word[] {
         rest.push({text: '-i', dynamic: false});
       }
       rest.push({text: `-${short[2]}`, dynamic: false});
-      rest.push({text: short[3], dynamic: word.dynamic});
+      rest.push({text: short[3], dynamic: word.dynamic, expands: word.expands});
       continue;
     }
 

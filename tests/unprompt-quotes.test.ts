@@ -91,6 +91,9 @@ test('quoted subcommands with dynamic operands keep main verdicts', async t => {
       'gh \'api\' graphql -f query="$Q"',
       'gh \'api\' graphql -f "query=$Q"',
       "git 'config' $K",
+      "git 'config' user.name$(printf ' Bob')",
+      "git 'config' user.name`printf ' Bob'`",
+      "gh 'api' graphql -F owner={owner}$(x) -f query='{viewer{login}}'",
     ],
     fixture(t),
   );

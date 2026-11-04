@@ -11,7 +11,7 @@ export function spell(word: Word | string): string {
 const expands = (word: Word | string) =>
   typeof word !== 'string' &&
   word.dynamic &&
-  !/^(?:[^$`*?[{]|\{[\w-]*\})+$/u.test(word.text);
+  (word.expands === true || /\{[^}]*(?:,|\.\.)[^}]*\}/u.test(word.text));
 
 // Quoting a dynamic word makes it look literal. This second spelling shows
 // each expansion as `$DYNAMIC` so exemptions for literal operands still ask.
