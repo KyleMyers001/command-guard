@@ -18,7 +18,7 @@ const ATOMS = [
   'git merge feat/x',
   'git config user.name',
   'git checkout --detach HEAD~1',
-  'curl -sSLo out.json https://x.test/a',
+  'curl -sSLo out.json https://example.com/a',
   'npm run test:migrations',
 ];
 const HEADS = [
@@ -147,4 +147,130 @@ for (const [name, command] of SHAPES)
     const start = performance.now();
     analyzeCommand(command, '/nonexistent');
     assert.ok(performance.now() - start < 1500, name);
+  });
+
+// CR on 08bfa8d.
+test('decoded directory changes keep main verdict (Codex 4466292988)', async t => {
+  const commands = [];
+  for (const cd of [
+    "c''d",
+    '\\cd',
+    'c\\\nd',
+    '"cd"',
+    "'cd'",
+    'pushd',
+    "p''ushd",
+    'popd',
+  ])
+    for (const atom of [
+      'rm -rf dist',
+      'curl -o out.json https://example.com/a',
+    ])
+      commands.push(`${cd} /tmp; ${atom}`, `${cd} /tmp && ${atom}`);
+  await notAllowed(commands, fixture(t));
+});
+
+test('bareness is decided per segment', async t => {
+  const commands = [];
+  for (const head of ['\\git', "'git'", '"git"', "g''it", 'g\\\nit'])
+    for (const tail of [
+      'merge feat/x',
+      'config user.name',
+      'checkout --detach HEAD~1',
+    ])
+      commands.push(
+        `${head} ${tail} ; git status`,
+        `git status && ${head} ${tail}`,
+      );
+  commands.push('\\rm -rf dist; rm -rf build', "r''m -rf dist && rm -rf out");
+  await notAllowed(commands, fixture(t));
+  await expectVerdicts('ALLOW', ['git merge feat/x ; git status'], fixture(t));
+});
+
+test('curl -o names at the root and under out dirs', async t => {
+  const cwd = fixture(t);
+  await expectVerdicts(
+    'ALLOW',
+    [
+      'curl -sSLo out.json https://example.com/a',
+      'curl -o output-v2.json https://example.com/a',
+      'curl -o results_1.csv https://example.com/a',
+      'curl -o response.txt https://example.com/a',
+      'curl -o data.tar.gz https://example.com/a',
+      'curl -o artifacts/ci/report.txt https://example.com/a',
+    ],
+    cwd,
+  );
+  const ask = [
+    'block.txt',
+    'notes.json',
+    'a.json',
+    'outx.json',
+    'dist/yarn.lock.json',
+    'dist/npm-shrinkwrap.json',
+    'dist/policy.json',
+    'build/guard.json',
+    'out/config.json',
+    'tmp/manifest.json',
+    'artifacts/app.config.json',
+  ].map(path => `curl -o ${path} https://example.com/a`);
+  await notAllowed(ask, cwd);
+});
+
+test('special-use, internal and wildcard-loopback hosts keep main verdict', async t => {
+  const hosts = [
+    'intranet',
+    'a.localhost',
+    'a.local',
+    'a.test',
+    'a.invalid',
+    'a.example',
+    'a.internal',
+    'a.intranet',
+    'a.lan',
+    'a.home',
+    'a.home.arpa',
+    'a.corp',
+    'a.private',
+    'a.consul',
+    'a.svc',
+    'a.cluster.local',
+    '1.0.0.10.in-addr.arpa',
+    'x.ip6.arpa',
+    'abc.onion',
+    'a.alt',
+    'a.vcap.me',
+    'a.lacolhost.com',
+    'a.localdev.me',
+    'a.local.gd',
+    'a.nip.io',
+    'a.sslip.io',
+    'a.xip.io',
+    'a.localtest.me',
+    'a.lvh.me',
+    'a.traefik.me',
+  ];
+  await notAllowed(
+    hosts.map(host => `curl -sSLo out.json https://${host}/a`),
+    fixture(t),
+  );
+});
+
+// Full guard, with the shipped policy: absolute bounds, generous for CI.
+const GUARD_SHAPES: [string, string][] = [
+  ['curl -s x10000', 'curl -s '.repeat(10000)],
+  ['curl -d a x5000', 'curl -d a '.repeat(5000)],
+  ['git merge x8000', 'git merge '.repeat(8000)],
+  [
+    'graphql chain x2000',
+    "gh api graphql -f query='{viewer{login}}'; ".repeat(2000),
+  ],
+  ['64 KB chain', 'rm -rf dist && '.repeat(4400) + 'ls'],
+];
+for (const [name, command] of GUARD_SHAPES)
+  test(`full guard stays bounded: ${name}`, async t => {
+    const cwd = fixture(t);
+    const start = performance.now();
+    await verdict(command, cwd);
+    assert.ok(performance.now() - start < 60000, name);
   });

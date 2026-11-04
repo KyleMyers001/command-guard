@@ -44,6 +44,7 @@ const RISKY_TEXT =
 // Groups, subshells, negation and brace expansion, outside quotes.
 const COMPOUND = /[(){}!]/u;
 // Steps that change what a relative path names (kept from 10df0fe's rules).
+const DIR_HEADS = new Set(['cd', 'pushd', 'popd', 'chdir', 'chroot', '.']);
 const MOVES_DIR =
   /(?<![\w./-])(?:cd|pushd|popd|chdir|chroot|source|eval)(?![\w.-])|(?:^|[;&|(\n{]|then|do|else)\s*(?:(?:builtin|command)\s+)?\.(?=\s)|\s-C(?![\w-])|--chdir/u;
 
@@ -105,9 +106,17 @@ export function chainUnsafe(
   )
     return true;
   const atoms = words.filter(isClassAtom);
+  // A directory change is found in the raw text and in the decoded words,
+  // so `c''d`, `\cd` and `c\<newline>d` count too (Codex 4466292988).
   if (
     atoms.some(list => list[0] === 'rm' || list[0] === 'curl') &&
-    MOVES_DIR.test(command)
+    (MOVES_DIR.test(command) ||
+      words.some(
+        list =>
+          DIR_HEADS.has(list[0]) ||
+          DIR_HEADS.has(normalize(list)[0]) ||
+          list.some(word => /^(?:-C|--chdir(?:=.*)?)$/u.test(word)),
+      ))
   )
     return true;
   if (
@@ -119,12 +128,22 @@ export function chainUnsafe(
     )
   )
     return true;
-  // Bare means as written: `\rm` or `r''m` decode to `rm` but are not bare.
-  const heads = new Map<string, number>();
-  for (const list of atoms) heads.set(list[0], (heads.get(list[0]) ?? 0) + 1);
-  for (const [head, count] of heads) {
-    const bare = new RegExp(`(?:^|[;&|\\n])[ \\t]*${head}(?=[ \\t]|$)`, 'gu');
-    if ((plain.match(bare)?.length ?? 0) < count) return true;
+  // Bare means as written, decided per segment: the segment that holds an
+  // atom must start with the literal head (`\\git`, `'git'`, `g''it` keep
+  // main's verdict). Segments that cannot be matched up fail closed.
+  if (atoms.length > 0) {
+    const spelled = plain
+      .split(/&&|\|\||(?<![<>])&(?!>)|(?<![>&])\|(?!&)|\|&|[;\n]/u)
+      .map(part => part.trim())
+      .filter(part => part !== '');
+    const listed = words.filter(list => list.length > 0);
+    if (spelled.length !== listed.length) return true;
+    for (let i = 0; i < listed.length; i++)
+      if (
+        isClassAtom(listed[i]) &&
+        !new RegExp(`^${listed[i][0]}(?:[ \\t]|$)`, 'u').test(spelled[i])
+      )
+        return true;
   }
   for (let i = 0; i < parsed.length; i++) {
     const segment = parsed[i];

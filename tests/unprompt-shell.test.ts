@@ -13,7 +13,7 @@ const CLASSES = [
   'git merge feat/x',
   'git config user.name',
   'git checkout --detach HEAD~1',
-  'curl -o out.json https://x.test/a',
+  'curl -o out.json https://example.com/a',
   'npm run test:migrations',
 ];
 const SHELLS = [

@@ -33,6 +33,11 @@ const OUT_DIRS = new Set([
 ]);
 const PART = /^[A-Za-z0-9_][\w+=,%-]*(?:\.[\w+=,%-]+)*$/u;
 const DATA = /\.(?:json|txt|csv|log|tar|gz|tgz|zip|png|jpe?g|gif|svg|pdf)$/iu;
+const ROOT_NAME =
+  /^(?:out|output|download|downloads|data|result|results|response)(?:[._-][A-Za-z0-9._-]*)?$/u;
+// Whole-word names that are build input, policy or config under out dirs.
+const SENSITIVE =
+  /(?:^|[^a-z0-9])(?:lock|shrinkwrap|policy|guard|config|manifest)(?:[^a-z0-9]|$)/iu;
 const MANIFEST =
   /^(?:package|composer|deno|turbo|nx|vercel|renovate|lerna)\.json$|^tsconfig|\.config\.|rc\.json$|(?:^|[^a-z0-9])lock(?:[^a-z0-9]|$)|(?:^|[^a-z0-9])(?:agents?|claude|gemini|copilot|cursor|codex|command-guard)(?:[^a-z0-9]|$)/iu;
 
@@ -42,7 +47,10 @@ export function isRepoOutput(path: string): boolean {
   if (!parts.every(part => PART.test(part))) return false;
   if (parts.length > 1 && (!OUT_DIRS.has(parts[0]) || parts.length > 4))
     return false;
-  return DATA.test(name) && !MANIFEST.test(name);
+  if (!DATA.test(name) || MANIFEST.test(name)) return false;
+  // CR on 08bfa8d: at the repo root only output-style names are allowed.
+  if (parts.length === 1) return ROOT_NAME.test(name.replace(DATA, ''));
+  return !SENSITIVE.test(name);
 }
 
 // CR F3: a syntactically valid public DNS name over http(s). IP literals,
@@ -50,8 +58,9 @@ export function isRepoOutput(path: string): boolean {
 // credentials and ports-only hosts keep main's verdict. Redirects (-L) and
 // DNS rebinding cannot be resolved statically.
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
+// Special-use and internal names, and wildcard-loopback domains.
 const WILDCARD =
-  /(?:^|\.)(?:nip\.io|sslip\.io|xip\.io|localtest\.me|lvh\.me|traefik\.me|localhost|local|internal|localdomain|home\.arpa)$/u;
+  /(?:^|\.)(?:nip\.io|sslip\.io|xip\.io|localtest\.me|lvh\.me|traefik\.me|vcap\.me|lacolhost\.com|localdev\.me|local\.gd|localhost|local|localdomain|test|invalid|example|internal|intranet|lan|home|corp|private|consul|svc|onion|alt|arpa)$/u;
 const OCTET = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)';
 const EMBEDDED_V4 = new RegExp(
   `(?:^|[.-])${OCTET}(?:[.-]${OCTET}){3}(?:[.-]|$)|(?:^|[.-])[0-9a-f]{8}(?:[.-]|$)`,

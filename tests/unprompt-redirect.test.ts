@@ -15,7 +15,7 @@ test('Codex P1 4464443083 and output redirections keep prompting', async t => {
     'ASK',
     [
       "r''m -rf dist > command-guard.json",
-      "cu''rl -o out.json https://x.test/a > command-guard.json",
+      "cu''rl -o out.json https://example.com/a > command-guard.json",
       'rm -rf dist > command-guard.json',
       '"rm" -rf dist > command-guard.json',
       'rm -rf dist >> command-guard.json',
@@ -27,7 +27,7 @@ test('Codex P1 4464443083 and output redirections keep prompting', async t => {
       'rm -rf dist; echo > x',
       'rm -rf dist > "$F"',
       'rm -rf dist; tee >(cat) < y',
-      'curl -o out.json https://x.test/a > x',
+      'curl -o out.json https://example.com/a > x',
       'git merge feat/x > x',
       "gh api graphql -f query='{viewer{login}}' > x",
       'npm run test:migrations > x',
@@ -47,7 +47,7 @@ test('harmless redirections do not raise the redirect flag', () => {
     'rm -rf dist 2>/dev/stderr',
     'rm -rf dist 1>/dev/stdout',
     'rm -rf dist 2>&-',
-    'curl -o out.json https://x.test/a 2>/dev/null',
+    'curl -o out.json https://example.com/a 2>/dev/null',
   ])
     assert.ok(!flagged(command), command);
   for (const command of [
@@ -67,7 +67,7 @@ const CLASSES = [
   'git config user.name',
   'git checkout --detach HEAD~1',
   "gh api graphql -f query='{viewer{login}}'",
-  'curl -o out.json https://x.test/a',
+  'curl -o out.json https://example.com/a',
   'npm run test:migrations',
 ];
 const FORMS = ['>', '>>', '>|', '&>', '&>>', '1>', '2>', '2>>', '>&'];
