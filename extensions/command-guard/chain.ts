@@ -18,7 +18,8 @@ const CURL_WORD =
   /^(?:-[sSLf]+|--(?:silent|show-error|location|fail|fail-with-body|compressed))$/u;
 const CURL_VALUE = /^(?:--retry|--max-time|-m|--connect-timeout)$/u;
 const URL = /^https?:\/\/[\w.~:/?#%=+@,-]+$/u;
-const PATH = /^\/dev\/null$|^(?:\/tmp\/|\.\/)?[\w@%+=,][\w.@%+=,~/-]*$/u;
+// No `@`: a curl value naming a file to send is never part of an atom.
+const PATH = /^\/dev\/null$|^(?:\/tmp\/|\.\/)?[\w%+=,][\w.%+=,~/-]*$/u;
 const PM = /^(?:npm|pnpm|yarn|bun)$/u;
 
 const texts = (words: Word[]): string[] => words.map(word => word.text);
