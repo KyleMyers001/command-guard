@@ -77,19 +77,16 @@ function safeGit(args: string[]): boolean {
 export function isSafe(words: string[], alone = false): boolean {
   const [head, ...args] = words;
   if (head === 'cd') return true;
-  // Alone, echo prints and printf (without -v) prints: main's verdict.
+  // Sophie (CR on 850ef37): printf is not safe in a chain (its format string
+  // expands), so a chain holding one keeps main's verdict; alone it prints,
+  // as before. In a chain echo passes
+  // only with plain literal words: no option (-e decodes), no backslash escape.
+  // Unquoted `~`, globs and other shell-special characters are checked in
+  // gate.ts on the raw text.
   if (alone && head === 'echo') return true;
   if (alone && head === 'printf') return !args[0]?.startsWith('-');
-  // Codex 4466711905: in a chain, echo and printf pass only with plain
-  // literal words: no option (-v assigns, -e decodes), no backslash escape,
-  // no % format.
-  if (head === 'echo' || head === 'printf')
-    return args.every(
-      arg =>
-        !arg.startsWith('-') &&
-        !arg.includes('\\') &&
-        (head === 'echo' || !arg.includes('%')),
-    );
+  if (head === 'echo')
+    return args.every(arg => !arg.startsWith('-') && !arg.includes('\\'));
   if (head === 'pwd' || head === 'true') return args.length === 0;
   if (head === 'mkdir')
     return args[0] === '-p' && args.length > 1 && args.slice(1).every(relative);

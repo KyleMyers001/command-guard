@@ -65,7 +65,7 @@ const PUBLIC_TLD = new Set(
   'com org net io dev app ai co gov edu us uk de fr ca eu jp sh me'.split(' '),
 );
 const BLOCKED =
-  /(?:^|\.)(?:1u\.ms|rbndr\.us|rebind\.network|rebinder\.net|nip\.direct|nip\.name|xip\.name|xip\.io|nip\.io|sslip\.io|vcap\.me|localdev\.me|lvh\.me|local\.gd|localtest\.me|lacolhost\.com|traefik\.me|fuf\.me|fbi\.com|ngrok\.io|0cf\.io|nip\.sh|sslip\.me)$/u;
+  /(?:^|\.)(?:1u\.ms|rbndr\.us|rebind\.network|rebinder\.net|nip\.direct|nip\.name|xip\.name|xip\.io|nip\.io|sslip\.io|vcap\.me|localdev\.me|lvh\.me|local\.gd|localtest\.me|lacolhost\.com|traefik\.me|fuf\.me|fbi\.com|ngrok\.io|ngrok\.app|ngrok-free\.app|ngrok\.dev|ngrok\.pro|ngrok-free\.dev|ngrok\.pizza|ngrok\.me|0cf\.io|nip\.sh|sslip\.me)$/u;
 // Sophie's ruling: an all-digit label, a leading zero (octal `0177`, hex
 // `0x7f`) keeps main's verdict.
 const NUMERIC = /(?:^|\.)(?:\d+|0[a-z0-9-]*)(?:\.|$)/u;

@@ -55,6 +55,8 @@ const MOVES_DIR =
 const MARK = '\u0001';
 // Stands in for a backslash escape outside quotes.
 const ESCAPE = '\u0002';
+// Anything but plain word characters, spaces and a quoted string (MARK).
+const NOT_PLAIN = new RegExp(`[^\\w .,:/=+${MARK}-]`, 'u');
 function scan(text: string): {plain: string; live: string} | undefined {
   let plain = '';
   let live = '';
@@ -151,9 +153,15 @@ export function chainUnsafe(
     const head = /^[^ ]*/u.exec(spelled[i])?.[0] ?? '';
     if (/[$`]|[^\x21-\x7e]|^\d*[<>]|^&>/u.test(head)) return true;
     if (/[^\x21-\x7e]/u.test(listed[i][0])) return true;
-    // echo/printf args are checked decoded in safe.ts; an unquoted `\n` decodes
+    // echo args are checked decoded in safe.ts; an unquoted `\n` decodes
     // to `n`, so a raw backslash escape in the segment also fails closed.
-    if (/^(?:echo|printf)$/u.test(listed[i][0]) && spelled[i].includes(ESCAPE))
+    // Unquoted `~`, `*`, `?`, `[` and the like expand (home, glob) before
+    // echo sees them, so only plain characters, or quoted text, pass
+    // (Codex 4467802395). printf is not on the safe list (safe.ts).
+    if (
+      listed[i][0] === 'echo' &&
+      (spelled[i].includes(ESCAPE) || NOT_PLAIN.test(spelled[i]))
+    )
       return true;
     if (
       isClassAtom(listed[i]) &&

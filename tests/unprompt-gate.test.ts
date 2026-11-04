@@ -82,12 +82,16 @@ test('compound constructs and stdin sourcing are not allowed', async t => {
   await notAllowed(commands, cwd);
 });
 
-test('printf -v is not a safe chain member', async t => {
+test('printf is not a safe chain member', async t => {
   await notAllowed(
-    ['printf -v x %s y && rm -rf dist', 'printf -v PATH %s . && rm -rf dist'],
+    [
+      'printf -v x %s y && rm -rf dist',
+      'printf -v PATH %s . && rm -rf dist',
+      'printf ok && rm -rf dist',
+      'printf ok; rm -rf dist',
+    ],
     fixture(t),
   );
-  await expectVerdicts('ALLOW', ['printf ok && rm -rf dist'], fixture(t));
 });
 
 test('curlrc fails closed on anything outside the allowlist', t => {
@@ -268,7 +272,6 @@ const SAFE_HEADS = [
   'sort README.md',
   'jq . a.json',
   'echo hi',
-  'printf ok',
   'pwd',
   'true',
   'mkdir -p dist',
@@ -317,7 +320,7 @@ test('an env dump piped to the network asks in a chain', async t => {
   );
 });
 
-test('echo and printf are safe only with plain literal words', async t => {
+test('echo is safe only with plain literal words', async t => {
   const odd = [
     'echo -e hi',
     'echo -n hi',
@@ -338,7 +341,12 @@ test('echo and printf are safe only with plain literal words', async t => {
   await notAllowed(commands, fixture(t));
   await expectVerdicts(
     'ALLOW',
-    ['echo hi there; rm -rf dist', 'printf ok; rm -rf dist'],
+    [
+      'echo hi there; rm -rf dist',
+      'echo done; rm -rf dist',
+      'echo build_1.2-x=y,z:/a+b; git merge feat/x',
+      "echo 'a b' && rm -rf dist",
+    ],
     fixture(t),
   );
 });
@@ -469,7 +477,7 @@ test('odd characters before a command word keep main verdict', async t => {
   await notAllowed(commands, fixture(t));
 });
 
-test('an escaped echo or printf argument in a chain keeps main verdict', async t => {
+test('an escaped echo argument in a chain keeps main verdict', async t => {
   const commands = [];
   for (const atom of ATOMS)
     for (const member of [
@@ -482,6 +490,19 @@ test('an escaped echo or printf argument in a chain keeps main verdict', async t
   await notAllowed(commands, fixture(t));
 });
 
+const TUNNELS = [
+  'ngrok.io',
+  'ngrok.app',
+  'ngrok-free.app',
+  'ngrok.dev',
+  'ngrok.pro',
+  'ngrok-free.dev',
+  'ngrok.pizza',
+  'ngrok.me',
+  '0cf.io',
+  'nip.sh',
+  'sslip.me',
+];
 test('numeric, octal, hex and tunnel host labels keep main verdict', async t => {
   const hosts = [
     '127.0.0.01.example.com',
@@ -492,10 +513,7 @@ test('numeric, octal, hex and tunnel host labels keep main verdict', async t => 
     '0x7f.example.com',
     'a.0x7f000001.com',
     '010.example.com',
-    ...['ngrok.io', '0cf.io', 'nip.sh', 'sslip.me'].flatMap(domain => [
-      domain,
-      `a.${domain}`,
-    ]),
+    ...TUNNELS.flatMap(domain => [domain, `a.${domain}`]),
   ];
   await notAllowed(
     hosts.map(host => `curl -sSLo out.json https://${host}/a`),
@@ -503,6 +521,60 @@ test('numeric, octal, hex and tunnel host labels keep main verdict', async t => 
   );
   await notAllowed(
     ['curl -o dist/my-extension.json https://example.com/a'],
+    fixture(t),
+  );
+});
+
+test('tunnel lookalikes stay allowed', async t => {
+  const hosts = [
+    'myngrok.app',
+    'myngrok.io',
+    'myngrok.dev',
+    'mynip.sh',
+    'notngrok-free.app',
+    'myngrok-free.dev',
+    'mysslip.me',
+    'ngrok.app.example.com',
+    'ngrok-free.dev.example.com',
+    'ngrok.me.example.com',
+    'nip.sh.example.com',
+  ];
+  await expectVerdicts(
+    'ALLOW',
+    hosts.map(host => `curl -sSLo out.json https://${host}/a`),
+    fixture(t),
+  );
+});
+
+// Codex 4467802395: an unquoted ~ or glob expands before echo sees it.
+test('an unquoted tilde or glob in a chained echo keeps main verdict', async t => {
+  const commands = [];
+  for (const atom of ATOMS)
+    for (const member of [
+      'echo ~',
+      'echo ~root',
+      'echo ~+',
+      'echo *',
+      'echo *n HOME',
+      'echo ?n HOME',
+      'echo [[:punct:]]n HOME',
+      'echo [a]',
+      'echo a?',
+      'echo {a,b}',
+      'echo a#b',
+      'echo a~b *',
+      'printf ~+ HOME',
+      'printf ?n HOME',
+      'printf *n HOME',
+      'printf [[:punct:]]n HOME',
+      'printf ~ HOME',
+      'printf ~root HOME',
+    ])
+      commands.push(`${member}; ${atom}`, `${atom} && ${member}`);
+  await notAllowed(commands, fixture(t));
+  await expectVerdicts(
+    'ALLOW',
+    ["echo '~' '*' '?' '['; rm -rf dist", 'echo done; rm -rf dist'],
     fixture(t),
   );
 });
