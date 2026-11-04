@@ -35,8 +35,5 @@ const STDIN_FILE = /^\/(?:dev\/stdin|dev\/fd\/0|proc\/self\/fd\/0)$/u;
 // could become one, may run piped input as a script.
 export function runsStdinShell(segment: Word[]): boolean {
   const isFed = fed.has(segment) || segment.some(w => STDIN_FILE.test(w.text));
-  return (
-    isFed &&
-    segment.some(w => w.expands === true || SHELLS.has(basename(w.text)))
-  );
+  return isFed && segment.some(w => w.dynamic || SHELLS.has(basename(w.text)));
 }

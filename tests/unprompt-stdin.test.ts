@@ -25,6 +25,7 @@ test('the stdin-shell flag follows feed forms, not spellings', () => {
     'cat s |& b""ash',
     'diff <(sh x) y',
     'mksh /dev/stdin',
+    'cat s | b{a..a}sh',
   ])
     assert.ok(flagged(command), command);
   for (const command of [
@@ -46,6 +47,7 @@ test('Codex P1 4464014027 and wrappers with arguments keep prompting', async t =
       'rm -rf dist; cat s | xargs -n1 bash -c',
       'git merge feat/x; cat s | nice -n 5 sh',
       'rm -rf dist; cat s | stdbuf -o0 bash',
+      'rm -rf dist; cat script.sh | b{a..a}sh',
       'git config user.name; cat s | timeout -s KILL 30 env -u X "$S"',
     ],
     fixture(t),
