@@ -1,4 +1,5 @@
 import test from 'node:test';
+import assert from 'node:assert/strict';
 import {fixture} from './helpers/fixtures.ts';
 import {expectVerdicts} from './helpers/verdict.ts';
 
@@ -161,4 +162,19 @@ test('git config writes and file options keep main verdicts', async t => {
     ],
     fixture(t),
   );
+});
+
+test('merge matcher stays linear on long non-merge git commands', async t => {
+  const cwd = fixture(t);
+  const started = Date.now();
+  await expectVerdicts(
+    'ALLOW',
+    [
+      `git -c user.name=${'a'.repeat(60)} status`,
+      `git -c user.name=${'a'.repeat(60)}b log --oneline`,
+      `git -c ${'x'.repeat(200)}='${'y '.repeat(80)}' status`,
+    ],
+    cwd,
+  );
+  assert.ok(Date.now() - started < 5000, 'policy evaluation took too long');
 });
