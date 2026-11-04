@@ -4,7 +4,6 @@ import {normalize, SHELLS} from './chain.ts';
 // Ruling 1 for remote and container shells: the command they carry is
 // opaque, so a chain that mentions a class keeps main's verdict.
 const CARRIER = /^(?:ssh|su|nsenter|chroot)$/u;
-const CLASS_TEXT = /\brm\b|merge|config|graphql|--detach|migrat|curl/u;
 export const carriesCommand = (words: string[]): boolean => {
   const [head = ''] = normalize(words);
   return (
@@ -13,11 +12,9 @@ export const carriesCommand = (words: string[]): boolean => {
     (/^(?:docker|podman|kubectl)$/u.test(head) && words.includes('exec'))
   );
 };
-export const carrierWithClass = (command: string, lists: string[][]) =>
-  CLASS_TEXT.test(command) && lists.some(carriesCommand);
-// A heredoc body is not in the canonical text, so name the carried classes.
-export function carriedClasses(command: string, lists: string[][]): string {
-  if (!carrierWithClass(command, lists)) return '';
+// Heredoc bodies and quoted remote commands are not in the canonical text,
+// so the marker line names the class words seen anywhere in the command.
+export function carriedClasses(command: string): string {
   const found = command.match(
     /(?<![\w.-])(?:rm|merge|config|graphql|curl)(?![\w-])|--detach|migrat/gu,
   );

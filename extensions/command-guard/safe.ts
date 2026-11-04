@@ -76,7 +76,9 @@ function safeGit(args: string[]): boolean {
 
 export function isSafe(words: string[]): boolean {
   const [head, ...args] = words;
-  if (head === 'cd' || head === 'echo' || head === 'printf') return true;
+  if (head === 'cd' || head === 'echo') return true;
+  // CR F6: `printf -v` assigns a variable; printf takes no option here.
+  if (head === 'printf') return !args[0]?.startsWith('-');
   if (head === 'pwd' || head === 'true') return args.length === 0;
   if (head === 'mkdir')
     return args[0] === '-p' && args.length > 1 && args.slice(1).every(relative);

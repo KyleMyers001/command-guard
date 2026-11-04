@@ -1,7 +1,3 @@
-import {readFileSync, statSync} from 'node:fs';
-import {homedir} from 'node:os';
-import {join} from 'node:path';
-
 // EL-115 PR6 curl download atom (Sophie's CR5/CR6 rulings): `curl -o <file>
 // <url>` may skip its prompt only when the file is a plain repo-relative path
 // that is not instructions, build input or config, the URL is public http(s),
@@ -24,58 +20,59 @@ export function curlWrites(args: string[]): boolean {
   );
 }
 
-const PROTECTED_DIRS = new Set([
-  'src',
-  'scripts',
-  'node_modules',
-  'extensions',
+// CR F2 (allowlist): a literal relative file at the repo root or up to
+// three levels under an output directory, with a data or archive extension,
+// and not a known config, manifest, lock or agent file.
+const OUT_DIRS = new Set([
+  'dist',
+  'build',
+  'out',
+  'tmp',
+  'artifacts',
+  'downloads',
 ]);
-const PROTECTED_NAME =
-  /agent|claude|gemini|copilot|cursor|guard|^(?:makefile|gnumakefile|justfile|dockerfile|package\.json)$|lock|^tsconfig|\.config\.|\.(?:toml|ya?ml|ini|cfg|conf|rc)$/iu;
+const PART = /^[A-Za-z0-9_][\w+=,%-]*(?:\.[\w+=,%-]+)*$/u;
+const DATA = /\.(?:json|txt|csv|log|tar|gz|tgz|zip|png|jpe?g|gif|svg|pdf)$/iu;
+const MANIFEST =
+  /^(?:package|composer|deno|turbo|nx|vercel|renovate|lerna)\.json$|^tsconfig|\.config\.|rc\.json$|(?:^|[^a-z0-9])lock(?:[^a-z0-9]|$)|(?:^|[^a-z0-9])(?:agents?|claude|gemini|copilot|cursor|codex|command-guard)(?:[^a-z0-9]|$)/iu;
 
 export function isRepoOutput(path: string): boolean {
-  if (!/^[\w+=,%][\w.+=,%/-]*$/u.test(path.replace(/^\.\//u, ''))) return false;
-  const parts = path.replace(/^\.\//u, '').split('/');
+  const parts = path.split('/');
   const name = parts[parts.length - 1];
-  if (parts.some(part => part === '' || part.startsWith('.'))) return false;
-  if (parts.length === 1 && /\.md$/iu.test(name)) return false;
-  if (PROTECTED_DIRS.has(parts[0])) return false;
-  return !PROTECTED_NAME.test(name);
+  if (!parts.every(part => PART.test(part))) return false;
+  if (parts.length > 1 && (!OUT_DIRS.has(parts[0]) || parts.length > 4))
+    return false;
+  return DATA.test(name) && !MANIFEST.test(name);
 }
 
-// A public http(s) URL: no credentials, no IP literal outside public IPv4,
-// no single-label, localhost, .local or bracketed (IPv6) host.
+// CR F3: a syntactically valid public DNS name over http(s). IP literals,
+// labels that embed an IPv4 address, wildcard-DNS suffixes, local names,
+// credentials and ports-only hosts keep main's verdict. Redirects (-L) and
+// DNS rebinding cannot be resolved statically.
+const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
+const WILDCARD =
+  /(?:^|\.)(?:nip\.io|sslip\.io|xip\.io|localtest\.me|lvh\.me|traefik\.me|localhost|local|internal|localdomain|home\.arpa)$/u;
+const OCTET = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)';
+const EMBEDDED_V4 = new RegExp(
+  `(?:^|[.-])${OCTET}(?:[.-]${OCTET}){3}(?:[.-]|$)|(?:^|[.-])[0-9a-f]{8}(?:[.-]|$)`,
+  'u',
+);
+
 export function isPublicUrl(url: string): boolean {
   const match =
-    /^https?:\/\/([a-z0-9.-]+)(?::\d+)?(?:[/?#][\w.~:/?#%=+,&-]*)?$/iu.exec(
+    /^https?:\/\/([a-z0-9.-]+)(?::\d{1,5})?(?:[/?#][\w.~:/?#%=+,&-]*)?$/iu.exec(
       url,
     );
   if (!match) return false;
-  const host = match[1].toLowerCase().replace(/\.$/u, '');
-  if (
-    !host.includes('.') ||
-    /(?:^|\.)(?:localhost|local|internal|localdomain|home\.arpa)$/u.test(host)
-  )
-    return false;
-  if (!/^[\d.]+$|^0x|\.0x/u.test(host))
-    return /[a-z]/u.test(host.split('.').pop()!);
-  const octets = host.split('.').map(Number);
-  if (
-    octets.length !== 4 ||
-    !/^(?:(?:[1-9]\d{0,2}|0)\.){3}(?:[1-9]\d{0,2}|0)$/u.test(host) ||
-    octets.some(n => n > 255)
-  )
-    return false;
-  const [a, b] = octets;
-  return !(
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    a >= 224 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 100 && b >= 64 && b <= 127)
+  const host = match[1].toLowerCase();
+  const labels = host.split('.');
+  return (
+    host.length <= 253 &&
+    labels.length >= 2 &&
+    labels.every(label => LABEL.test(label)) &&
+    /^(?:[a-z]{2,63}|xn--[a-z0-9-]+)$/u.test(labels[labels.length - 1]) &&
+    !WILDCARD.test(host) &&
+    !EMBEDDED_V4.test(host)
   );
 }
 
@@ -100,65 +97,3 @@ export function isCurlDownload(args: string[]): boolean {
   }
   return output && url;
 }
-
-// --- curlrc (checked where the guard runs) -------------------------------
-// An option line naming output, remote-name, output-dir or create-dirs, with
-// or without dashes, or a short -o/-O bundle.
-const RISKY_RC =
-  /^[ \t]*(?:-[a-zA-Z]*[oO]|-{0,2}(?:output-dir|create-dirs|output|remote-name(?:-all)?))(?![\w-])/mu;
-
-export function curlrcPaths(env: NodeJS.ProcessEnv): string[] {
-  const home = env.HOME ?? homedir();
-  const xdg = env.XDG_CONFIG_HOME || join(home, '.config');
-  const paths = [
-    join(xdg, '.curlrc'),
-    join(xdg, 'curlrc'),
-    join(home, '.curlrc'),
-  ];
-  if (env.CURL_HOME)
-    paths.unshift(
-      join(env.CURL_HOME, '.curlrc'),
-      join(env.CURL_HOME, '.config', 'curlrc'),
-    );
-  return paths;
-}
-
-const cache = new Map<string, {stamp: string; risky: boolean}>();
-
-// True when a curlrc might redirect output; unreadable counts as risky.
-function riskyFile(path: string): boolean {
-  let stamp: string;
-  try {
-    const stat = statSync(path);
-    stamp = `${stat.mtimeMs}:${stat.size}`;
-  } catch (error) {
-    return (
-      (error as NodeJS.ErrnoException).code !== 'ENOENT' &&
-      (error as NodeJS.ErrnoException).code !== 'ENOTDIR'
-    );
-  }
-  const hit = cache.get(path);
-  if (hit?.stamp === stamp) return hit.risky;
-  let risky: boolean;
-  try {
-    risky = RISKY_RC.test(readFileSync(path, 'utf8'));
-  } catch {
-    risky = true;
-  }
-  cache.set(path, {stamp, risky});
-  return risky;
-}
-
-export const curlrcRiskyIn = (env: NodeJS.ProcessEnv): boolean =>
-  curlrcPaths(env).some(riskyFile);
-
-export type CurlrcCheck = () => boolean;
-const defaultCheck: CurlrcCheck = () => curlrcRiskyIn(process.env);
-let check = defaultCheck;
-
-// Tests swap the check; nothing reads the real home directory there.
-export function setCurlrcCheck(next?: CurlrcCheck): void {
-  check = next ?? defaultCheck;
-}
-
-export const curlrcRisky = (): boolean => check();

@@ -15,7 +15,7 @@ test('read-only gh api graphql queries are allowed', async t => {
       "gh api graphql --raw-field query='{ viewer { login } }'",
       "gh api graphql -f query='query { viewer { login } }'",
       'gh api graphql -f query=\'query($owner:String!){repository(owner:$owner,name:"x"){id}}\' -f owner=foo',
-      "gh api graphql -F owner='{owner}' -F name={repo} -f query='query { repository { id } }'",
+      "gh api graphql -F owner='{owner}' -F name='{repo}' -f query='query { repository { id } }'",
       "gh api graphql -F count=5 -f query='query { viewer { login } }'",
       "gh api graphql --paginate -f query='{ viewer { login } }' --jq '.data.viewer.login'",
       "gh api graphql -f query='{ viewer { login } }' -q .data --cache 1h --slurp",
@@ -32,6 +32,8 @@ test('graphql mutations and other forms keep main verdicts', async t => {
     [
       'gh api graphql -f query=\'mutation { addStar(input:{starrableId:"x"}){clientMutationId} }\'',
       "gh api graphql -f query='MUTATION{x}'",
+      // Unquoted braces are refused by the chain gate (CR F1).
+      "gh api graphql -F name={repo} -f query='{ viewer { login } }'",
       "gh api graphql -f query='Mutation M { x }'",
       "gh api graphql -f query='query { a } mutation { b }'",
       "gh api graphql -f query='{ viewer { login } }' -f note=mutation",

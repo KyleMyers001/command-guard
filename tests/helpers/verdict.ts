@@ -9,7 +9,7 @@ import {createCommandGuard} from '../../extensions/command-guard.ts';
 import {
   curlrcRiskyIn,
   setCurlrcCheck,
-} from '../../extensions/command-guard/curl.ts';
+} from '../../extensions/command-guard/curlrc.ts';
 
 // Never the real home directory: a home that does not exist has no curlrc.
 const fixtureHome = resolve(tmpdir(), `cg-no-home-${process.pid}`);

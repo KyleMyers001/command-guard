@@ -3,8 +3,8 @@ import {classifyGit, withoutGitGlobals} from './git.ts';
 import {classifyHelm, classifyKubectl} from './kube.ts';
 import {expandScripts} from './scripts.ts';
 import {spell, spellDynamic} from './spelling.ts';
-import {carriedClasses, carrierWithClass} from './carrier.ts';
-import {chainUnsafe, classish} from './chain.ts';
+import {carriedClasses} from './carrier.ts';
+import {chainUnsafe, mentionsClass} from './gate.ts';
 import {outputRedirects} from './redirect.ts';
 import {parseSegments, type Word} from './shell.ts';
 
@@ -116,13 +116,6 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
   const parsed = parseSegments(command);
   const wroteOutput = outputRedirects() > outputsBefore;
   const {segments, decisions} = expandScripts(parsed);
-  // Without a class atom (in any spelling) no exemption applies, and the line
-  // would only disturb rules that read the whole text, such as exfil's.
-  const lists = segments.map(segment => segment.map(word => word.text));
-  const unsafe =
-    (segments.some(segment => classish(segment.map(word => word.text))) ||
-      carrierWithClass(command, lists)) &&
-    chainUnsafe(command, parsed, segments, wroteOutput);
   let workdirs: string[] | undefined = [cwd];
 
   for (const segment of segments) {
@@ -172,10 +165,12 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
   }
 
   // EL-115 PR6: the class exemptions apply only when this line is absent.
-  if (unsafe) {
-    lines.push('__chain_unsafe__');
-    const carried = carriedClasses(command, lists);
-    if (carried) lines.push(carried);
-  }
+  // Any class word in the raw or canonical text (CR F1) means the command
+  // must prove itself safe; otherwise the ask rule keeps main's verdict.
+  if (
+    mentionsClass(command, lines.join('\n')) &&
+    chainUnsafe(command, parsed, segments, wroteOutput)
+  )
+    lines.push('__chain_unsafe__', carriedClasses(command));
   return {canonical: lines.join('\n'), decisions};
 }

@@ -6,7 +6,7 @@ import {analyzeCommand} from '../extensions/command-guard/commands.ts';
 import {
   curlrcRiskyIn,
   setCurlrcCheck,
-} from '../extensions/command-guard/curl.ts';
+} from '../extensions/command-guard/curlrc.ts';
 import {fixture} from './helpers/fixtures.ts';
 import {expectVerdicts, verdict} from './helpers/verdict.ts';
 
@@ -212,7 +212,7 @@ test('curl -o keeps main verdicts outside plain repo files and public hosts (CR5
   );
   await expectVerdicts(
     'ALLOW',
-    ['curl -o dl/x.zip https://x.test/x.zip'],
+    ['curl -o dist/x.zip https://x.test/x.zip'],
     fixture(t),
   );
 });
