@@ -1,7 +1,9 @@
 import {basename, resolve} from 'node:path';
 import {classifyGit, withoutGitGlobals} from './git.ts';
+import {classifyHelm, classifyKubectl} from './kube.ts';
 import {expandScripts} from './scripts.ts';
 import {spell, spellDynamic} from './spelling.ts';
+import {runsStdinShell} from './stdin.ts';
 import {parseSegments, type Word} from './shell.ts';
 
 // Decisions made from a command's decoded arguments rather than its text.
@@ -25,58 +27,6 @@ export interface Analysis {
 const TOOLS = new Set(['git', 'gh', 'kubectl', 'helm']);
 // More candidate directories than this count as not knowing the directory.
 const MAX_WORKDIRS = 8;
-
-const KUBECTL_DRY_RUNS = new Set(['--dry-run=client', '--dry-run=server']);
-const KUBECTL_MUTATIONS = new Set([
-  'delete',
-  'apply',
-  'replace',
-  'patch',
-  'scale',
-  'drain',
-  'cordon',
-]);
-const KUBECTL_ROLLOUT_MUTATIONS = new Set(['restart', 'undo']);
-const HELM_MUTATIONS = new Set([
-  'delete',
-  'uninstall',
-  'install',
-  'upgrade',
-  'rollback',
-]);
-
-const KUBECTL_MUTATES: Decision = {
-  verdict: 'ask',
-  reason:
-    'kubectl command changes cluster state; only a single --dry-run=client or --dry-run=server is exempt',
-};
-const HELM_MUTATES: Decision = {
-  verdict: 'ask',
-  reason:
-    'helm command changes a release; dry-run flags are not trusted because their meaning varies by Helm version',
-};
-
-function classifyKubectl(args: Word[]): Decision[] {
-  const mutates = args.some(
-    (arg, i) =>
-      KUBECTL_MUTATIONS.has(arg.text) ||
-      (arg.text === 'rollout' &&
-        KUBECTL_ROLLOUT_MUTATIONS.has(args[i + 1]?.text)),
-  );
-  if (!mutates) return [];
-
-  // `--dry-run=none` runs for real, and a repeated flag is ambiguous.
-  const dryRuns = args.filter(arg => arg.text.startsWith('--dry-run'));
-  const isDryRun =
-    dryRuns.length === 1 &&
-    !dryRuns[0].dynamic &&
-    KUBECTL_DRY_RUNS.has(dryRuns[0].text);
-  return isDryRun ? [] : [KUBECTL_MUTATES];
-}
-
-function classifyHelm(args: Word[]): Decision[] {
-  return args.some(arg => HELM_MUTATIONS.has(arg.text)) ? [HELM_MUTATES] : [];
-}
 
 // `gh` accepts its repository option anywhere, including before the command.
 function withoutGhRepo(args: Word[]): Word[] {
@@ -209,5 +159,7 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
     if (spelledDynamic) lines.push(spelledDynamic);
   }
 
+  // A flag line for rules that keep chains feeding a shell prompting.
+  if (segments.some(runsStdinShell)) lines.push('__stdin_shell__');
   return {canonical: lines.join('\n'), decisions};
 }

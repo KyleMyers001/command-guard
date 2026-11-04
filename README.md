@@ -281,11 +281,14 @@ tracked in EL-116.
 
 ### Shells fed by a chain
 
-A chain that holds one of the commands above and also feeds a shell (`sh`,
-`bash`, `zsh`, `dash`, `ksh`, and similar, in any path, behind any wrapper
-such as `env`, `timeout` or `xargs`, or in any quoting) from a pipe, a heredoc, a here-string, or `<(...)` keeps
-asking. A shell fed that way on its own, such as `echo hi | sh`, keeps main's
-verdict.
+A chain that holds one of the commands above keeps main's verdict when any
+command in it reads standard input (the right side of a pipe, a heredoc, a
+here-string, a `<` redirect, `<(...)`/`>(...)`, or `/dev/stdin`) and either
+names a shell (`sh`, `bash`, `zsh`, `dash`, `ksh`, `mksh`, `fish`, `ash`,
+`busybox`, and similar, with any path or quoting) anywhere among its words,
+or holds an expansion (`$VAR`, `$(...)`, backticks, a glob). This is
+deliberately coarse and covers any wrapper and its arguments. A command like
+that on its own, such as `echo hi | sh`, keeps main's verdict.
 
 ## Command analysis
 

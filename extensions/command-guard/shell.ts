@@ -13,10 +13,8 @@ export interface Word {
   expands?: boolean;
 }
 
-interface Heredoc {
-  delimiter: string;
-  stripTabs: boolean;
-}
+import {type Heredoc, skipHeredocs} from './heredoc.ts';
+import {markStdin} from './stdin.ts';
 
 // Nesting this deep is never legitimate; the guard fails closed on the error.
 const MAX_DEPTH = 8;
@@ -46,6 +44,10 @@ function scanCommands(
   let stripTabs = false;
   let heredocs: Heredoc[] = [];
   let openParens = 0;
+  // Whether the current segment reads input, and whether `(` opens a
+  // process substitution, whose commands read or write a pipe.
+  let fed = false;
+  let procSub = false;
 
   const current = (): Word => (word ??= {text: '', dynamic: false});
 
@@ -60,10 +62,15 @@ function scanCommands(
     word = undefined;
   }
 
-  function endSegment(): void {
+  function endSegment(pipeAfter = false): void {
     endWord();
     redirect = 'none';
-    if (segment.length > 0) out.push(segment);
+    if (segment.length > 0) {
+      if (fed) markStdin(segment);
+      out.push(segment);
+      fed = false;
+    }
+    fed ||= pipeAfter;
     segment = [];
   }
 
@@ -101,7 +108,8 @@ function scanCommands(
       }
       i = substitution(i + 1, '`');
     } else if (char === '(') {
-      endSegment();
+      endSegment(procSub);
+      procSub = false;
       openParens++;
       i++;
     } else if (char === ')') {
@@ -121,11 +129,18 @@ function scanCommands(
       stripTabs = isHeredoc && text[i] === '-';
       if (stripTabs) i++;
       redirect = isHeredoc ? 'heredoc' : 'target';
-    } else if (char === ';' || char === '|' || char === '&' || char === '\n') {
+      fed ||= operator.includes('<');
+      procSub = text[i] === '(';
+      if (procSub) fed = true;
+    } else if (char === '|' && next === '|') {
       endSegment();
+      i += 2;
+    } else if (char === ';' || char === '|' || char === '&' || char === '\n') {
+      endSegment(char === '|');
       i++;
       if (char === '\n' && heredocs.length > 0) {
-        i = skipHeredocs(text, i, heredocs);
+        // An unterminated body is parsed as commands, which only adds lines.
+        i = skipHeredocs(text, i, heredocs) ?? i;
         heredocs = [];
       }
     } else if (char === ' ' || char === '\t' || char === '\r') {
@@ -183,26 +198,4 @@ function scanDoubleQuoted(
   // Unterminated: the shell would keep reading, so the word is not known.
   word.dynamic = word.expands = true;
   return text.length;
-}
-
-// Here-document bodies are data. Returns the index after the last body.
-function skipHeredocs(
-  text: string,
-  start: number,
-  heredocs: Heredoc[],
-): number {
-  let i = start;
-
-  for (const {delimiter, stripTabs} of heredocs) {
-    while (i < text.length) {
-      const newline = text.indexOf('\n', i);
-      const end = newline < 0 ? text.length : newline;
-      const line = text.slice(i, end).replace(/\r$/u, '');
-      i = newline < 0 ? text.length : newline + 1;
-
-      if ((stripTabs ? line.replace(/^\t+/u, '') : line) === delimiter) break;
-    }
-  }
-
-  return i;
 }
