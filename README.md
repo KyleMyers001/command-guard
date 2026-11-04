@@ -282,8 +282,8 @@ tracked in EL-116.
 ### Shells fed by a chain
 
 A chain that holds one of the commands above and also feeds a shell (`sh`,
-`bash`, `zsh`, `dash`, `ksh`, and similar, in any path, `env`/`command`
-wrapper, or quoting) from a pipe, a heredoc, a here-string, or `<(...)` keeps
+`bash`, `zsh`, `dash`, `ksh`, and similar, in any path, behind any wrapper
+such as `env`, `timeout` or `xargs`, or in any quoting) from a pipe, a heredoc, a here-string, or `<(...)` keeps
 asking. A shell fed that way on its own, such as `echo hi | sh`, keeps main's
 verdict.
 
