@@ -1,0 +1,2 @@
+# Keeps its  /  escapes, which Prettier would decode.
+tests/fixtures/policy-migration-cases.json

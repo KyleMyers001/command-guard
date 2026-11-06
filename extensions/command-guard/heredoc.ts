@@ -5,7 +5,7 @@ export interface Heredoc {
 
 // Every line of the text, indexed once by its content (exact and with
 // leading tabs stripped), so finding a closing delimiter never rescans the
-// text (CR F5: `a <<EOF` repeated was quadratic).
+// text: rescanning made `a <<EOF` repeated many times quadratic.
 interface LineIndex {
   text: string;
   exact: Map<string, number[]>;
