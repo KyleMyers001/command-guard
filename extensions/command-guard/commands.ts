@@ -1,5 +1,6 @@
 import {basename, resolve} from 'node:path';
 import {classifyGit, withoutGitGlobals} from './git.ts';
+import {pipesToShell} from './pipeline.ts';
 import {expandScripts} from './scripts.ts';
 import {parseSegments, type ShellMode, type Word} from './shell.ts';
 
@@ -52,6 +53,11 @@ const HELM_MUTATIONS = new Set([
   'rollback',
 ]);
 
+const PIPE_TO_SHELL: Decision = {
+  verdict: 'deny',
+  reason: 'a download is piped into a shell, which runs it unseen',
+  advice: 'Download the script to a file, read it, then run it.',
+};
 const KUBECTL_MUTATES: Decision = {
   verdict: 'ask',
   reason:
@@ -184,7 +190,7 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
 
 function analyzeWith(command: string, cwd: string, mode: ShellMode): Analysis {
   const lines: string[] = [];
-  const {segments, decisions} = expandScripts(
+  const {segments, decisions, scripts} = expandScripts(
     parseSegments(command, mode),
     mode,
   );
@@ -230,9 +236,9 @@ function analyzeWith(command: string, cwd: string, mode: ShellMode): Analysis {
     );
   }
 
-  return {
-    canonical: lines.join('\n'),
-    lines,
-    decisions,
-  };
+  // The segments no longer show a pipeline, so read the text of the command
+  // and of each literal shell string.
+  if ([command, ...scripts].some(pipesToShell)) decisions.push(PIPE_TO_SHELL);
+
+  return {canonical: lines.join('\n'), lines, decisions};
 }

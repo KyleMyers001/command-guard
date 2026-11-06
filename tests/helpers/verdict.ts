@@ -21,7 +21,7 @@ export async function verdict(command: string): Promise<Verdict> {
   const result = await guard(
     {
       type: 'tool_call',
-      toolCallId: 'register-regression',
+      toolCallId: 'verdict-helper',
       toolName: 'bash',
       input: {command},
     } as ToolCallEvent,

@@ -136,15 +136,19 @@ function nestedScript(segment: Word[]): {script?: string; decision?: Decision} {
 }
 
 // `segments` followed by the commands of every literal script among them,
-// with a decision for each script that cannot be inspected.
+// with a decision for each script that cannot be inspected. `scripts` holds
+// the decoded text of each literal script, so text rules can read a pipeline
+// such as `curl url | sh` that the segments no longer show.
 export function expandScripts(
   segments: Word[][],
   mode?: ShellMode,
 ): {
   segments: Word[][];
   decisions: Decision[];
+  scripts: string[];
 } {
   const decisions: Decision[] = [];
+  const scripts: string[] = [];
 
   function expand(list: Word[][], depth: number): Word[][] {
     return list.flatMap(segment => {
@@ -156,9 +160,10 @@ export function expandScripts(
         decisions.push(SCRIPT_TOO_DEEP);
         return [segment];
       }
+      scripts.push(script);
       return [segment, ...expand(parseSegments(script, mode), depth + 1)];
     });
   }
 
-  return {segments: expand(segments, 0), decisions};
+  return {segments: expand(segments, 0), decisions, scripts};
 }
