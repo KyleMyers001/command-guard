@@ -129,7 +129,6 @@ test('round 5: the forms Code Reviewer found', () => {
     "f() { sh -c 'lerna publish'; }; f",
     "while true; do eval 'lerna publish'; done",
     'gdb --args npm publish',
-    'echo npm publish',
   ])
     assert.equal(denies(command), true, command);
 });

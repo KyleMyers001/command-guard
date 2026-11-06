@@ -3,7 +3,7 @@ import {classifyGit, withoutGitGlobals} from './git.ts';
 import {ghArgs} from './gh.ts';
 import {classifyHelm, classifyKubectl} from './kube.ts';
 import {pipesToShell} from './pipeline.ts';
-import {classifyPublish} from './publish.ts';
+import {classifyPublish, runsOutput} from './publish.ts';
 import {expandScripts} from './scripts.ts';
 import {spell, spellDynamic} from './spelling.ts';
 import {exemptTexts} from './gate.ts';
@@ -100,10 +100,12 @@ function analyzeWith(
   const parsed = parseCommand(command, mode);
   const {segments, decisions, scripts} = expandScripts(parsed.segments, mode);
   let workdirs: string[] | undefined = [cwd];
+  let runs: boolean | undefined;
+  const runsCommandOutput = () => (runs ??= runsOutput(command));
 
   for (const segment of segments) {
     workdirs = workdirsAfter(segment, workdirs);
-    decisions.push(...classifyPublish(segment));
+    decisions.push(...classifyPublish(segment, runsCommandOutput));
 
     // Before the tool lookup: cd repo/git names a tool but runs none.
     const at = segment.findIndex(

@@ -4,6 +4,7 @@ import {INFO_FLAGS, SCRIPT_TAKERS, SHELL_KEYWORDS} from './publish-options.ts';
 import {
   isNpmPublish,
   isScript,
+  literal,
   nameOf,
   programOf,
   tokens,
@@ -20,13 +21,22 @@ import {parseSegments, type Word} from './shell.ts';
 // - the script of `run`: `npm run publish`, `lerna run publish`;
 // - after pnpm `recursive`, yarn `npm`, `workspace <name>` and
 //   `workspaces [foreach ...]`;
-// - inside a script given to `sh -c`, `eval`, `npx -c` and the like.
+// - inside a script given to `sh -c`, `eval`, `npx -c` and the like, or
+//   quoted after a runner: `npx concurrently 'npm publish'`.
 //
 // A test filter, package name, option value or anything after `--` is not
-// a publish. Where the position cannot be read (an expansion or a long run
-// of options before it) any later `publish` counts, and so does any
-// `publish` text in a command too large to read. Only help and version output
-// is left alone where npm is the command: `npm help publish`, `npm -h publish`.
+// a publish, nor is a `test:`, `lint:` or `check:` script. Where the position
+// cannot be read (an expansion or a long run of options before it) any later
+// `publish` counts, and so does any `publish` text in a command too large to
+// read. Help and version output is left alone where npm is the command:
+// `npm help publish`, `npm -h publish`.
+//
+// Some words are data, not commands, so no runner starts there:
+//
+// - every argument of a search or print command (`rg`, `grep`, `git grep`,
+//   `echo`, `printf`), unless the command line may run what it prints;
+// - in a test run (`npm test`, `npm run test:unit`, `npx vitest`, ...), the
+//   words after `--` and the value of `-t` or `--test-name-pattern`.
 
 const PUBLISHES: Decision = {
   verdict: 'deny',
@@ -170,6 +180,30 @@ const isNpmRun = (name: string): boolean =>
   name === 'urn' ||
   (name.length >= 3 && 'run-script'.startsWith(name));
 
+const isRun = (runner: Runner, name: string): boolean =>
+  name === 'run' ||
+  name === 'run-script' ||
+  (runner === 'npm' && isNpmRun(name));
+
+// A script that only tests or checks, the prefix grammar of the migration
+// exemption: `test`, `test:unit`, `lint-publish`, `check:publish`.
+const CHECK_SCRIPT = /^(?:test|lint|check)(?:[:-]|$)/u;
+const TEST_SUBCOMMANDS = new Set(['test', 't', 'tst']);
+const TEST_TOOLS = new Set([
+  'vitest',
+  'jest',
+  'mocha',
+  'ava',
+  'playwright',
+  'tap',
+  'uvu',
+]);
+const TEST_NAME = /^(?:-t|--test-name-pattern)$/u;
+
+// Commands whose arguments are data: what they search for or print.
+const PRINTERS = new Set(['echo', 'printf']);
+const SEARCHERS = new Set(['grep', 'egrep', 'fgrep', 'rg']);
+
 // Returns a reader of a runner's words, from the word after its name, for a
 // publish. `publishFrom` answers for a position that cannot be read. Each
 // (runner, index) is read once, so the cost stays linear however the
@@ -207,13 +241,13 @@ function reader(
       return true;
     if (runner === 'tool') return false;
     // The script of `run`: `npm run publish`, `yarn run publish:npm`.
-    if (
-      name === 'run' ||
-      name === 'run-script' ||
-      (runner === 'npm' && isNpmRun(name))
-    )
-      return any(runner, next, at =>
-        tokens(words[at].text).includes('publish'),
+    if (isRun(runner, name))
+      return any(
+        runner,
+        next,
+        at =>
+          tokens(words[at].text).includes('publish') &&
+          !CHECK_SCRIPT.test(words[at].text),
       );
     if (runner === 'pnpm' && /^(?:recursive|multi|m)$/u.test(name))
       return publishes(runner, next);
@@ -236,8 +270,14 @@ function reader(
 }
 
 // Whether the text of a script, such as the value of `sh -c`, publishes.
-function scriptPublishes(script: string, depth: number): boolean {
-  return parseSegments(script).some(segment => publishes(segment, depth + 1));
+function scriptPublishes(
+  script: string,
+  depth: number,
+  runsOutput: () => boolean,
+): boolean {
+  return parseSegments(script).some(segment =>
+    publishes(segment, depth + 1, runsOutput),
+  );
 }
 
 // The words a script-taker joins after a script that ends in a runner:
@@ -279,23 +319,80 @@ function publishedFrom(words: Word[]): (from: number, npm: boolean) => boolean {
   };
 }
 
-// Whether a segment publishes.
-function publishes(words: Word[], depth: number): boolean {
+// Whether the segment's command searches or prints its arguments: `rg` without
+// `--pre` (which runs a program on each file), `git grep` without
+// `-O`/`--open-files-in-pager` (any `--o...` spelling), `grep`, `echo` or
+// `printf`, after shell keywords and assignments only.
+function isDataCommand(words: Word[]): boolean {
+  const at = words.findIndex(
+    word =>
+      !SHELL_KEYWORDS.has(word.text) && !/^[A-Za-z_]\w*=/u.test(word.text),
+  );
+  const head = words[at];
+  if (!head || head.dynamic) return false;
+  const name = basename(head.text);
+  const rest = words.slice(at + 1);
+  if (PRINTERS.has(name)) return true;
+  if (name === 'rg')
+    return !rest.some(word => /^--pre(?:=|$)/u.test(word.text));
+  if (SEARCHERS.has(name)) return true;
+  return (
+    name === 'git' &&
+    rest[0]?.text === 'grep' &&
+    !rest.some(word => /^(?:-O|--o)/u.test(word.text))
+  );
+}
+
+// Whether a runner word starts a test run: `npm test`, `pnpm run test:unit`,
+// `yarn vitest`, `npx jest`. Every reading of its subcommand must be one.
+function isTestRun(words: Word[], runner: Runner, from: number): boolean {
+  const found = positions(words, from, VALUE_OPTIONS[runner]);
+  if (found === undefined || found.length === 0) return false;
+  return found.every(at => {
+    const name = programOf(words[at]);
+    if (TEST_TOOLS.has(name)) return true;
+    if (runner === 'npx' || runner === 'tool') return false;
+    if (TEST_SUBCOMMANDS.has(name)) return true;
+    if (!isRun(runner, name)) return false;
+    const scripts = positions(words, at + 1, VALUE_OPTIONS[runner]);
+    return (
+      scripts !== undefined &&
+      scripts.length > 0 &&
+      scripts.every(script => CHECK_SCRIPT.test(literal(words[script])))
+    );
+  });
+}
+
+// Whether a segment publishes. `runsOutput` reports whether the command line
+// may run text a command prints (a substitution or a pipe into a shell).
+function publishes(
+  words: Word[],
+  depth: number,
+  runsOutput: () => boolean,
+): boolean {
   if (depth > MAX_DEPTH) return true;
   if (tooLarge(words)) return largePublishes(words);
   if (isInfoForm(words)) return false;
+  if (isDataCommand(words) && !runsOutput()) return false;
 
   const read = reader(words, publishedFrom(words));
 
   let runner = false;
   let takesScripts = false;
+  // In a test run, words after `--` and test-name values are data.
+  let testRun = false;
+  let dataRest = false;
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
+    if (testRun && !dataRest && word.text === '--') dataRest = true;
+    if (dataRest || (testRun && TEST_NAME.test(words[i - 1]?.text ?? '')))
+      continue;
     if (isScript(word) && (runner || takesScripts)) {
       // `--call=script` and `-cscript` carry the script after the option.
       const bare = word.text.replace(/^(?:--call=|-c=?)/u, '');
-      if (scriptPublishes(word.text, depth)) return true;
-      if (bare !== word.text && scriptPublishes(bare, depth)) return true;
+      if (scriptPublishes(word.text, depth, runsOutput)) return true;
+      if (bare !== word.text && scriptPublishes(bare, depth, runsOutput))
+        return true;
       const joined = carried(word.text, words.slice(i + 1));
       if (joined) {
         runner = true;
@@ -307,6 +404,7 @@ function publishes(words: Word[], depth: number): boolean {
     if (name) {
       runner = true;
       if (read(name, i + 1)) return true;
+      if (isTestRun(words, name, i + 1)) testRun = true;
     }
     if (!word.dynamic && SCRIPT_TAKERS.has(basename(word.text)))
       takesScripts = true;
@@ -315,7 +413,23 @@ function publishes(words: Word[], depth: number): boolean {
   return false;
 }
 
-// `segment` is one simple command.
-export function classifyPublish(segment: Word[]): Decision[] {
-  return publishes(segment, 0) ? [PUBLISHES] : [];
+// Whether a command line may run what a command prints: a command or
+// process substitution, or a pipe with a shell, `eval`, `source`, `xargs` or
+// `parallel` anywhere after it. Read from the raw text, quotes included.
+const SUBSTITUTION = /\$\(|`|[<>]\(/u;
+const RUNS_INPUT =
+  /(?<![\w.-])(?:(?:ba|z|da|k|mk|y|c|tc|a)?sh|fish|eval|source|exec|xargs|parallel|\.)(?![\w.-])/u;
+
+export function runsOutput(command: string): boolean {
+  if (SUBSTITUTION.test(command)) return true;
+  const pipe = command.indexOf('|');
+  return pipe >= 0 && RUNS_INPUT.test(command.slice(pipe));
+}
+
+// `segment` is one simple command of `command`.
+export function classifyPublish(
+  segment: Word[],
+  runsCommandOutput: () => boolean = () => true,
+): Decision[] {
+  return publishes(segment, 0, runsCommandOutput) ? [PUBLISHES] : [];
 }

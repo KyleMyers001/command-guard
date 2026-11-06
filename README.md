@@ -347,11 +347,23 @@ path, behind any wrapper) starts a command the classifier reads. `publish`
 counts where that command reads it as what to do: the subcommand (`npm pub`
 and other npm prefixes too), the script of `run`, after pnpm `recursive`,
 `yarn npm`, `yarn workspace <name>` and `yarn workspaces [foreach ...]`, and
-inside a script given to `sh -c`, `eval`, `npx -c`, `ssh` and the like. When an
+inside a script given to `sh -c`, `eval`, `npx -c`, `ssh` and the like, or
+quoted after a runner (`npx concurrently 'npm --tag latest publish'`). When an
 option written without `=` may take the next word as its value, both readings
 count. `publish` as a test filter, package name, `--filter` value, or after
 `--` is not a publish (`npm install publish`, `pnpm --filter publish test`,
-`npm test -- -t publish`). An expansion or a long run of options before the
+`npm test -- -t publish`), and neither is a script named with a `test`,
+`lint` or `check` prefix and `:` or `-` (`npm run test:publish`).
+
+Some words are data, so no runner starts there and no quoted script there is
+read: every argument of `rg` (without `--pre`), `grep`, `git grep` (without
+`-O` or any `--o...` option), `echo` or `printf`, unless the command line has
+a substitution or pipes into a shell, `eval`, `source`, `exec`, `xargs` or
+`parallel`; and in a test run (`npm test`, a `test`/`lint`/`check` script,
+`vitest`, `jest`, `mocha`, ...), the words after `--` and the value of `-t` or
+`--test-name-pattern`. So `rg -e npm -e publish` and
+`npx vitest -t 'npm --tag latest publish'` run, while `echo npm --tag latest
+publish | sh` is denied. An expansion or a long run of options before the
 subcommand, a script nested too deep, or a command too large to read with a
 runner name and `publish` text anywhere is denied. The policy's text rule for
 `npm`, `pnpm` or `yarn` followed by `publish` also always applies.
