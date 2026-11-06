@@ -98,7 +98,8 @@ function setup(
       },
     },
   };
-  const guard = createCommandGuard({policyPath, homeDir: cwd});
+  // An empty env keeps the approval window at its default whatever the shell sets.
+  const guard = createCommandGuard({policyPath, homeDir: cwd, env: {}});
   return {
     cwd,
     policyPath,

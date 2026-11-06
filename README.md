@@ -158,10 +158,23 @@ Two loaded guards can evaluate the same call and prompt twice.
    invocation.
 5. Otherwise the call proceeds.
 
-Denial, cancellation, approval errors, invocation changes, and the 120-second
-approval timeout all block the call. TUI and RPC modes use Pi's native
-confirmation UI. JSON and print modes block asks because no approval UI is
-available. No session-wide approvals are cached.
+Denial, cancellation, approval errors, invocation changes, and an unanswered
+approval all block the call. An approval prompt waits 2 minutes by default; set
+`COMMAND_GUARD_APPROVAL_TIMEOUT_S` (whole seconds, clamped to 10 s - 30 min) to
+change that. Only a positive whole number counts: an unset, empty, zero,
+negative, fractional, hex, exponent or text value (`1.5`, `1e3`, `0x10`,
+`10s`) is invalid and uses the 2 minute default. A prompt that is not answered
+in time is never treated as approval: silence blocks, and so does a "yes" that
+arrives after the window has passed (measured on a monotonic clock; a clock
+reading that is not a finite number counts as expired). Nothing runs, and the
+guard tells the agent "Not approved in time; nothing ran. Skip it or ask the
+user directly" so it moves on instead of asking again. Pi reports a "no" and a
+lapsed dialog the same way, so a wait that used the whole window is worded as
+not approved in time; any shorter "no" is reported as denied.
+
+TUI and RPC modes use Pi's native confirmation UI. JSON and print modes block
+asks because no approval UI is available. No session-wide approvals are
+cached.
 
 ## Policy
 
