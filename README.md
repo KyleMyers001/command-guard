@@ -191,8 +191,12 @@ Supported selectors:
   a complete line inside a multiline command. Regexes have no stateful `g` or
   `y` flags. Other inline modifier forms depend on native runtime support.
 - `BashRawRegex(expression)` uses exactly the same regex engine, `u` flag, and
-  modifier support as `BashRegex`, but checks **raw and canonical spellings only**,
-  never their flattened forms. It is not literal-raw-only matching. Use it when
+  modifier support as `BashRegex`, but never sees flattened spellings. It
+  checks the command exactly as written, the canonical text (one simple command
+  per line) and each canonical line on its own. Because of the line-by-line
+  check, a gap such as `[^;&|]*` cannot run from one command into the next; a
+  custom regex that spans lines can still match inside the raw or joined
+  canonical text. It is not literal-raw-only matching. Use it when
   whitespace/continuation provenance matters; the migrated historical denies
   use `BashRawRegex((?m:...))` to preserve their original matching scope.
 - File selectors use `~/` for home, `//` for filesystem root, and relative paths
@@ -201,8 +205,16 @@ Supported selectors:
 
 `Bash(pattern)` and `BashRegex(expression)` check raw and canonical spellings
 and their flattened forms (backslash-LF/CRLF becomes a space, then runs of spaces
-and tabs collapse). `BashRawRegex` does not add those flattened forms; canonical
-command analysis is unchanged and can itself normalize quoting and arguments.
+and tabs collapse). `BashRawRegex` checks the raw text, the canonical text and
+each canonical line without those flattened forms; canonical command analysis is unchanged and can
+itself normalize quoting and arguments.
+
+Command analysis fails closed. When a command contains a construct the shell
+scanner cannot be sure of (a process substitution `<(...)` / `>(...)`, an
+unusual redirect operator, `case` inside a substitution, or an unbalanced quote
+or parenthesis), the rules and classifiers also run on the guard's original
+splitting of the same text, and the stricter verdict wins. Such a command is
+never allowed when the original reading would have blocked it.
 Selectors remain strings, not rule objects; there is no JSON `flatten` field or
 generic flags API.
 

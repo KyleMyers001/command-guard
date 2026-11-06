@@ -8,6 +8,7 @@ import {homedir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {analyzeCommand} from './command-guard/commands.ts';
+import {allDecisions, matchesEither} from './command-guard/legacy.ts';
 import {matches} from './command-guard/match.ts';
 import {canonicalPath, inputPaths} from './command-guard/paths.ts';
 import {
@@ -176,6 +177,11 @@ export function createCommandGuard(options: GuardOptions = {}) {
     const targets = analysis
       ? [target, analysis.canonical]
       : inputPaths(tool, target, ctx.cwd, homeDir);
+    const texts = analysis && {
+      raw: target,
+      canonical: analysis.canonical,
+      lines: analysis.lines,
+    };
     const call: Invocation = {tool, input, target, targets};
 
     // 1. Built-in protection, before any mutable configuration is consulted.
@@ -190,8 +196,10 @@ export function createCommandGuard(options: GuardOptions = {}) {
     // a command that analysis alone would let through.
     const policy = loadPolicy(policyFile);
     const matchesCall = (rule: Rule) =>
-      matches(rule, tool, targets, ctx.cwd, homeDir);
-    const decisions = analysis?.decisions ?? [];
+      texts && analysis
+        ? matchesEither(rule, tool, texts, analysis, ctx.cwd, homeDir)
+        : matches(rule, tool, targets, ctx.cwd, homeDir);
+    const decisions = allDecisions(analysis);
 
     // 3. Command-analysis and JSON denies, which no approval can override.
     const refused = decisions.find(decision => decision.verdict === 'deny');

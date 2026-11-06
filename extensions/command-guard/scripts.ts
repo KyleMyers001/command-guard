@@ -1,6 +1,6 @@
 import {basename} from 'node:path';
 import type {Decision} from './commands.ts';
-import {parseSegments, type Word} from './shell.ts';
+import {parseSegments, type ShellMode, type Word} from './shell.ts';
 
 // Finds the literal scripts of `sh -c script` and `eval script`, which are
 // commands too. Script files and custom tools are never read.
@@ -137,7 +137,10 @@ function nestedScript(segment: Word[]): {script?: string; decision?: Decision} {
 
 // `segments` followed by the commands of every literal script among them,
 // with a decision for each script that cannot be inspected.
-export function expandScripts(segments: Word[][]): {
+export function expandScripts(
+  segments: Word[][],
+  mode?: ShellMode,
+): {
   segments: Word[][];
   decisions: Decision[];
 } {
@@ -153,7 +156,7 @@ export function expandScripts(segments: Word[][]): {
         decisions.push(SCRIPT_TOO_DEEP);
         return [segment];
       }
-      return [segment, ...expand(parseSegments(script), depth + 1)];
+      return [segment, ...expand(parseSegments(script, mode), depth + 1)];
     });
   }
 

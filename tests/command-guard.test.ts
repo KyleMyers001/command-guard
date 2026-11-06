@@ -140,6 +140,16 @@ test('raw regex denies never prompt and invalid JSON fails closed', async t => {
   assert.equal(h.prompts.length, 0);
 });
 
+test('line-anchored raw rules match every normalized command, one at a time', async t => {
+  const h = setup(t, {deny: ['BashRawRegex((?m:^gh issue delete\\b))']});
+  blocked(
+    await h.call(bash('printf ok; /usr/bin/gh issue delete 42')),
+    /JSON deny/i,
+  );
+  blocked(await h.call(bash('printf ok && gh issue delete 42')), /JSON deny/i);
+  assert.equal(await h.call(bash('gh issue list')), undefined);
+});
+
 test('JSON deny wins over ask and command arguments stay out of block reasons', async t => {
   const h = setup(t, {deny: ['Bash(*push*)'], ask: ['Bash']});
   const result = await h.call(

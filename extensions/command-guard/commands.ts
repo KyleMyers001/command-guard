@@ -1,7 +1,7 @@
 import {basename, resolve} from 'node:path';
 import {classifyGit, withoutGitGlobals} from './git.ts';
 import {expandScripts} from './scripts.ts';
-import {parseSegments, type Word} from './shell.ts';
+import {parseSegments, type ShellMode, type Word} from './shell.ts';
 
 // Decisions made from a command's decoded arguments rather than its text.
 // Reasons are fixed strings: they are shown to the model and must never
@@ -18,7 +18,15 @@ export interface Analysis {
   // or Git and GitHub global options, so text rules written for the plain
   // spelling (`gh pr merge`) also match `gh -R owner/repo pr merge`.
   canonical: string;
+  // The same lines one by one. Raw rules read them separately, so a gap such as
+  // `[^;&|]*` cannot run from one command into the next.
+  lines: string[];
   decisions: Decision[];
+  // Set when the command holds a construct the scanner cannot be sure of (a
+  // process substitution, an unterminated quote, an unusual operator...): the
+  // same command as the guard's first scanner read it. Callers apply their
+  // rules to both readings and take the stricter result.
+  legacy?: {canonical: string; decisions: Decision[]};
 }
 
 const TOOLS = new Set(['git', 'gh', 'kubectl', 'helm']);
@@ -163,8 +171,23 @@ function spell(word: Word): string {
 }
 
 export function analyzeCommand(command: string, cwd: string): Analysis {
+  const mode: ShellMode = {legacy: false, uncertain: false};
+  const analysis = analyzeWith(command, cwd, mode);
+  if (!mode.uncertain) return analysis;
+
+  const {canonical, decisions} = analyzeWith(command, cwd, {
+    legacy: true,
+    uncertain: false,
+  });
+  return {...analysis, legacy: {canonical, decisions}};
+}
+
+function analyzeWith(command: string, cwd: string, mode: ShellMode): Analysis {
   const lines: string[] = [];
-  const {segments, decisions} = expandScripts(parseSegments(command));
+  const {segments, decisions} = expandScripts(
+    parseSegments(command, mode),
+    mode,
+  );
   let workdirs: string[] | undefined = [cwd];
 
   for (const segment of segments) {
@@ -207,5 +230,9 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
     );
   }
 
-  return {canonical: lines.join('\n'), decisions};
+  return {
+    canonical: lines.join('\n'),
+    lines,
+    decisions,
+  };
 }
