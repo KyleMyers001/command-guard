@@ -1,6 +1,7 @@
 import {basename, resolve} from 'node:path';
 import {classifyGit, withoutGitGlobals} from './git.ts';
 import {pipesToShell} from './pipeline.ts';
+import {classifyPublish} from './publish.ts';
 import {expandScripts} from './scripts.ts';
 import {parseSegments, type ShellMode, type Word} from './shell.ts';
 
@@ -199,6 +200,7 @@ function analyzeWith(command: string, cwd: string, mode: ShellMode): Analysis {
   for (const segment of segments) {
     // Before the tool lookup: `cd repo/git` names a tool but runs none.
     workdirs = workdirsAfter(segment, workdirs);
+    decisions.push(...classifyPublish(segment));
 
     // Wrappers such as `env X=1` or `time` come before the tool's own word.
     const at = segment.findIndex(

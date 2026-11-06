@@ -54,7 +54,7 @@ function isWrapperOption(word: Word): boolean {
 
 // The command after leading assignments and `env` or `time`. `resolved` is
 // false when a wrapper option is unknown, so where the command starts is too.
-function unwrap(segment: Word[]): {command: Word[]; resolved: boolean} {
+export function unwrap(segment: Word[]): {command: Word[]; resolved: boolean} {
   let resolved = true;
   let i = 0;
 
