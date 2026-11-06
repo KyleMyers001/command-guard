@@ -74,5 +74,8 @@ function executableText(text: string): string {
 }
 
 export function pipesToShell(text: string): boolean {
+  // A match requires a literal pipe. Without one, repeated download words
+  // make the regex retry the remaining suffix at each word (quadratic work).
+  if (!text.includes('|')) return false;
   return TO_SHELL.test(executableText(text));
 }

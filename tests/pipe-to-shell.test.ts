@@ -1,8 +1,17 @@
+import assert from 'node:assert/strict';
 import test from 'node:test';
+import {pipesToShell} from '../extensions/command-guard/pipeline.ts';
 import {expectAll} from './helpers/verdict.ts';
 
 // EL-115: pipe-to-shell inside a shell string, subshell or substitution was
 // allowed because the rule needed whitespace after the shell's name.
+
+test('download-looking text without a pipe avoids quadratic matching', () => {
+  const command = 'curl -s '.repeat(20000);
+  const start = performance.now();
+  assert.equal(pipesToShell(command), false);
+  assert.ok(performance.now() - start < 500, 'pipeline scan took over 500 ms');
+});
 
 test('denies curl or wget piped into a shell, however the pipeline ends', async () => {
   await expectAll(
