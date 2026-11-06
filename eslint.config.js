@@ -6,12 +6,7 @@ const googleStyle = require('gts');
 
 export default [
   {
-    ignores: [
-      '.codegraph/**',
-      'coverage/**',
-      'dist/**',
-      'tests/fixtures/main-7b8edc4/**',
-    ],
+    ignores: ['.codegraph/**', 'coverage/**', 'dist/**'],
   },
   {languageOptions: {globals: globals.node}},
   ...googleStyle,

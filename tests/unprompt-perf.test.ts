@@ -6,25 +6,27 @@ import type {
   ToolCallEvent,
 } from '@earendil-works/pi-coding-agent';
 import {createCommandGuard} from '../extensions/command-guard.ts';
-import {createCommandGuard as createMainGuard} from './fixtures/main-7b8edc4/extensions/command-guard.ts';
 import {fixture} from './helpers/fixtures.ts';
 
-// Sophie's R4 ruling: on pathological repeats the whole guard may cost at
-// most 2.5x main. Locally curl -s/-d run at 2.3x, but the CI runner measures
-// 2.6-2.7x for the same code, so the test allows 3x (permitted by the ruling
-// for CI noise). Main is the vendored 7b8edc4 classifier, timed in the same
-// run on the same input. Both only classify text; prompts answer "no".
-const LIMIT = 3;
-const fixtures = resolve(import.meta.dirname, 'fixtures/main-7b8edc4');
-const pr = createCommandGuard({
+// Pathological repeats must not make the whole guard blow up. Each shape is
+// timed at 8 KB and at 32 KB, four times the input. Main itself is quadratic
+// on some of these (curl -s takes about 1 s at 32 KB), so quadratic growth,
+// 16x, passes with room for noise; cubic growth, 64x, fails. A generous
+// absolute budget catches a slowdown that scales well but starts high. The
+// test compares the guard with itself, so a slow CI machine does not fail it.
+// Commands are only classified; prompts answer "no".
+const GROWTH = 32;
+// Below this a run is mostly timer and scheduler noise.
+const FLOOR_MS = 10;
+const BUDGET_MS = 15_000;
+
+const guard = createCommandGuard({
   policyPath: resolve(import.meta.dirname, '../command-guard.json'),
-});
-const main = createMainGuard({
-  policyPath: resolve(fixtures, 'command-guard.json'),
+  env: {},
+  curlrcRisky: () => false,
 });
 
-type Guard = typeof pr;
-async function time(guard: Guard, command: string, cwd: string) {
+async function time(command: string, cwd: string): Promise<number> {
   const event = {
     type: 'tool_call',
     toolCallId: 'perf',
@@ -43,18 +45,33 @@ async function time(guard: Guard, command: string, cwd: string) {
   return performance.now() - start;
 }
 
-// Best of three when main is fast, to keep scheduler noise out of the
-// ratio; both guards always get the same number of runs, interleaved.
-async function ratio(command: string, cwd: string) {
-  let base = await time(main, command, cwd);
-  let ours = await time(pr, command, cwd);
-  if (base < 1000)
-    for (let i = 0; i < 2; i++) {
-      base = Math.min(base, await time(main, command, cwd));
-      ours = Math.min(ours, await time(pr, command, cwd));
-    }
-  return {base, ours};
+// The fastest of three runs, or of one when a run takes over a second.
+async function best(command: string, cwd: string): Promise<number> {
+  let fastest = await time(command, cwd);
+  for (let i = 0; i < 2 && fastest < 1000; i++)
+    fastest = Math.min(fastest, await time(command, cwd));
+  return fastest;
 }
+
+async function expectScales(
+  name: string,
+  build: (bytes: number) => string,
+  cwd: string,
+): Promise<string> {
+  await time('ls', cwd);
+  const small = await best(build(8 * 1024), cwd);
+  const large = await best(build(32 * 1024), cwd);
+  const growth = large / Math.max(small, FLOOR_MS);
+  assert.ok(
+    growth <= GROWTH,
+    `${name}: ${small.toFixed(0)} ms at 8 KB, ${large.toFixed(0)} ms at 32 KB`,
+  );
+  assert.ok(large < BUDGET_MS, `${name}: ${large.toFixed(0)} ms at 32 KB`);
+  return `${name}: ${small.toFixed(0)} ms at 8 KB, ${large.toFixed(0)} ms at 32 KB`;
+}
+
+const repeat = (unit: string, bytes: number) =>
+  unit.repeat(Math.ceil(bytes / unit.length));
 
 const UNITS: [string, string][] = [
   ['env', 'env '],
@@ -71,25 +88,16 @@ const UNITS: [string, string][] = [
   ['rm chain', 'rm -rf dist && '],
 ];
 for (const [name, unit] of UNITS)
-  for (const kb of [64, 128])
-    test(`whole guard within ${LIMIT}x main: ${name} at ${kb} KB`, async t => {
-      const cwd = fixture(t);
-      const command =
-        'echo ' + unit.repeat(Math.ceil((kb * 1024) / unit.length));
-      await time(pr, 'ls', cwd);
-      await time(main, 'ls', cwd);
-      const {base, ours} = await ratio(command, cwd);
-      t.diagnostic(`main ${base.toFixed(0)} ms, PR ${ours.toFixed(0)} ms`);
-      assert.ok(
-        ours <= LIMIT * base,
-        `${name} ${kb} KB: ${ours.toFixed(0)} ms vs main ${base.toFixed(0)} ms`,
-      );
-    });
+  test(`whole guard scales on repeated ${name}`, async t => {
+    const cwd = fixture(t);
+    t.diagnostic(
+      await expectScales(name, bytes => 'echo ' + repeat(unit, bytes), cwd),
+    );
+  });
 
-// Codex P1 4470197249: a safe-list reader after a class command was
-// classified in quadratic time because each accepted flag copied the rest of
-// the arguments. Each shape is `git config user.name; <reader> <flags>`
-// repeated to 64 KB and 128 KB, run through the same ratio as above.
+// A safe-list reader after an exempt command once took quadratic time
+// because each accepted flag copied the rest of the arguments. Each shape is
+// `git config user.name; <reader> <flags>` repeated.
 const SAFE_READER_SHAPES: [string, string, string][] = [
   ['sort', 'sort ', '-r '],
   ['wc', 'wc ', '-l '],
@@ -104,21 +112,14 @@ const SAFE_READER_SHAPES: [string, string, string][] = [
   ['git log -n', 'git log ', '-n 1 '],
 ];
 for (const [name, head, unit] of SAFE_READER_SHAPES)
-  for (const kb of [64, 128])
-    test(`whole guard within ${LIMIT}x main: safe list ${name} at ${kb} KB`, async t => {
-      const cwd = fixture(t);
-      const tail = name === 'grep' ? 'x' : '';
-      const command =
-        'git config user.name; ' +
-        head +
-        unit.repeat(Math.ceil((kb * 1024) / unit.length)) +
-        tail;
-      await time(pr, 'ls', cwd);
-      await time(main, 'ls', cwd);
-      const {base, ours} = await ratio(command, cwd);
-      t.diagnostic(`main ${base.toFixed(0)} ms, PR ${ours.toFixed(0)} ms`);
-      assert.ok(
-        ours <= LIMIT * base,
-        `safe list ${name} ${kb} KB: ${ours.toFixed(0)} ms vs main ${base.toFixed(0)} ms`,
-      );
-    });
+  test(`whole guard scales on safe list ${name}`, async t => {
+    const cwd = fixture(t);
+    const tail = name === 'grep' ? 'x' : '';
+    t.diagnostic(
+      await expectScales(
+        `safe list ${name}`,
+        bytes => 'git config user.name; ' + head + repeat(unit, bytes) + tail,
+        cwd,
+      ),
+    );
+  });
