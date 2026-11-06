@@ -74,7 +74,9 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
     legacy: true,
     uncertain: false,
   });
-  return {...analysis, legacy: {canonical, decisions}};
+  // Spreading analysis would eagerly evaluate its lazy invocation getter.
+  analysis.legacy = {canonical, decisions};
+  return analysis;
 }
 
 function analyzeWith(command: string, cwd: string, mode: ShellMode): Analysis {
