@@ -5,7 +5,14 @@ const require = createRequire(import.meta.url);
 const googleStyle = require('gts');
 
 export default [
-  {ignores: ['.codegraph/**', 'coverage/**', 'dist/**']},
+  {
+    ignores: [
+      '.codegraph/**',
+      'coverage/**',
+      'dist/**',
+      'tests/fixtures/main-7b8edc4/**',
+    ],
+  },
   {languageOptions: {globals: globals.node}},
   ...googleStyle,
   {files: ['eslint.config.js'], languageOptions: {sourceType: 'module'}},

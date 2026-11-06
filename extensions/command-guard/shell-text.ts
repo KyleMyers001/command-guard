@@ -30,20 +30,20 @@ export function scanDoubleQuoted(
       word.text += next;
       i += 2;
     } else if (char === '$' && next === '(') {
-      word.dynamic = true;
+      word.dynamic = word.expands = true;
       i = scan(i + 2, ')');
     } else if (char === '`') {
-      word.dynamic = true;
+      word.dynamic = word.expands = true;
       i = scan(i + 1, '`');
     } else {
-      if (char === '$') word.dynamic = true;
+      if (char === '$') word.dynamic = word.expands = true;
       word.text += char;
       i++;
     }
   }
 
   // Unterminated: the shell would keep reading, so the word is not known.
-  word.dynamic = true;
+  word.dynamic = word.expands = true;
   mode.uncertain = true;
   return text.length;
 }

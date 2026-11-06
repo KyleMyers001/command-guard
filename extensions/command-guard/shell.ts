@@ -1,4 +1,10 @@
-import {scanDoubleQuoted, skipHeredocs, type Heredoc} from './shell-text.ts';
+import {
+  scanDoubleQuoted,
+  skipHeredocs as skipLegacyHeredocs,
+} from './shell-text.ts';
+import {type Heredoc, skipHeredocs} from './heredoc.ts';
+import {noteOutput, noteOutputProcess} from './redirect.ts';
+import {markStdin} from './stdin.ts';
 
 // Bounded decoding of literal shell words. This is not a shell interpreter:
 // it recognizes quoting, escapes, command separators, redirections,
@@ -11,12 +17,11 @@ export interface Word {
   // True when the shell could turn the word into something else: a variable,
   // substitution, glob, brace expansion, or an unterminated quote.
   dynamic: boolean;
+  // True when an expansion other than a plain brace pair made it dynamic.
+  expands?: boolean;
 }
 
-// How the scanner reads a command. `legacy` switches off everything added
-// since the guard's first splitter (process substitution), so the same text can
-// be read both ways. `uncertain` is set when the text holds a construct the
-// scanner cannot be sure about; callers then also use the legacy reading.
+// Uncertain scans are also checked with the original command splitter.
 export interface ShellMode {
   legacy: boolean;
   uncertain: boolean;
@@ -58,14 +63,19 @@ function scanCommands(
   let stripTabs = false;
   let heredocs: Heredoc[] = [];
   let openParens = 0;
+  // Whether the current segment reads input, and whether `(` opens a
+  // process substitution, whose commands read or write a pipe.
+  let fed = false;
+  let procSub = false;
+  // The operator of an output redirection whose target word comes next.
+  let output: string | undefined;
 
   const current = (): Word => (word ??= {text: '', dynamic: false});
 
   function endWord(): void {
     if (!word) return;
 
-    // A case pattern ends with `)`, which the scanner would take for the end
-    // of the substitution it sits in.
+    // A case pattern's closing parenthesis can confuse substitution bounds.
     if (
       word.text === 'case' &&
       !word.dynamic &&
@@ -74,7 +84,8 @@ function scanCommands(
     ) {
       mode.uncertain = true;
     }
-
+    if (output !== undefined) noteOutput(output, word);
+    output = undefined;
     if (redirect === 'heredoc')
       heredocs.push({delimiter: word.text, stripTabs});
     else if (redirect === 'none') segment.push(word);
@@ -83,15 +94,22 @@ function scanCommands(
     word = undefined;
   }
 
-  function endSegment(): void {
+  function endSegment(pipeAfter = false): void {
     endWord();
+    if (output !== undefined) noteOutput(output, undefined);
+    output = undefined;
     redirect = 'none';
-    if (segment.length > 0) out.push(segment);
+    if (segment.length > 0) {
+      if (fed) markStdin(segment);
+      out.push(segment);
+      fed = false;
+    }
+    fed ||= pipeAfter;
     segment = [];
   }
 
   function substitution(from: number, end: ')' | '`'): number {
-    current().dynamic = true;
+    current().dynamic = current().expands = true;
     return scanCommands(text, from, end, out, depth + 1, mode);
   }
 
@@ -112,7 +130,7 @@ function scanCommands(
       const close = text.indexOf("'", i + 1);
       current().text += text.slice(i + 1, close < 0 ? text.length : close);
       if (close < 0) {
-        current().dynamic = true;
+        current().dynamic = current().expands = true;
         mode.uncertain = true;
       }
       i = close < 0 ? text.length : close + 1;
@@ -133,11 +151,12 @@ function scanCommands(
       }
       i = substitution(i + 1, '`');
     } else if (char === '(') {
-      // After a word or an unfinished redirect, `(` may be extglob `!(a|b)` or
-      // a `>(` split by a continuation; the split can differ from bash.
+      // A continuation can split a process substitution; extglobs also make
+      // the outer argument boundaries uncertain.
       const afterWord = word || segment.length > 0 || redirect !== 'none';
       if (!mode.legacy && afterWord) mode.uncertain = true;
-      endSegment();
+      endSegment(procSub);
+      procSub = false;
       openParens++;
       i++;
     } else if (char === ')') {
@@ -164,6 +183,8 @@ function scanCommands(
         // carries on after it as if it were not there.
         if (/[<>]$/u.test(operator) && text[i] === '(') {
           mode.uncertain = true;
+          fed = true;
+          if (operator.includes('>')) noteOutputProcess();
           i = scanCommands(text, i + 1, ')', out, depth + 1, mode);
           redirect = 'none';
           continue;
@@ -174,11 +195,23 @@ function scanCommands(
       stripTabs = isHeredoc && text[i] === '-';
       if (stripTabs) i++;
       redirect = isHeredoc ? 'heredoc' : 'target';
-    } else if (char === ';' || char === '|' || char === '&' || char === '\n') {
+      fed ||= operator.includes('<');
+      procSub = text[i] === '(';
+      if (procSub) fed = true;
+      const writes = operator.includes('>');
+      if (writes && procSub) noteOutputProcess();
+      else if (writes) output = operator;
+    } else if (char === '|' && next === '|') {
       endSegment();
+      i += 2;
+    } else if (char === ';' || char === '|' || char === '&' || char === '\n') {
+      endSegment(char === '|');
       i++;
       if (char === '\n' && heredocs.length > 0) {
-        i = skipHeredocs(text, i, heredocs);
+        // An unterminated body is parsed as commands, which only adds lines.
+        i = mode.legacy
+          ? skipLegacyHeredocs(text, i, heredocs)
+          : (skipHeredocs(text, i, heredocs) ?? i);
         heredocs = [];
       }
     } else if (char === ' ' || char === '\t' || char === '\r') {
@@ -188,7 +221,8 @@ function scanCommands(
       const newline = text.indexOf('\n', i);
       i = newline < 0 ? text.length : newline;
     } else {
-      if ('$*?[{'.includes(char)) current().dynamic = true;
+      if ('$*?['.includes(char)) current().dynamic = current().expands = true;
+      else if (char === '{') current().dynamic = true;
       current().text += char;
       i++;
     }

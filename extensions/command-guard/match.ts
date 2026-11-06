@@ -35,8 +35,16 @@ function globMatches(pattern: string, text: string): boolean {
 
 // Rules are written for one-line commands with single spaces. Join
 // backslash-newline continuations and collapse runs of spaces and tabs.
+// Every rule reads the same few texts, so the last results are kept.
+const flatCache = new Map<string, string>();
 function flattened(command: string): string {
-  return command.replace(/\\\r?\n/gu, ' ').replace(/[ \t]+/gu, ' ');
+  let flat = flatCache.get(command);
+  if (flat === undefined) {
+    flat = command.replace(/\\\r?\n/gu, ' ').replace(/[ \t]+/gu, ' ');
+    if (flatCache.size >= 4) flatCache.clear();
+    flatCache.set(command, flat);
+  }
+  return flat;
 }
 
 // What a Bash rule is matched against. `raw` is the command as written,
@@ -67,7 +75,13 @@ function bashMatches(
     // matches, so a deny denies and an ask asks; with no trigger words to go
     // by, any such command does. Otherwise it is read as text, like BashRegex.
     const {triggers} = rule;
-    if (!triggers || hasTriggers(textVariants(commands).join('\n'), triggers))
+    if (
+      !triggers ||
+      hasTriggers(
+        textVariants([texts.raw, texts.canonical]).join('\n'),
+        triggers,
+      )
+    )
       return true;
   }
   const spellings =

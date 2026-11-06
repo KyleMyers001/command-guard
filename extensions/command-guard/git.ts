@@ -157,6 +157,8 @@ const CHECKOUT_SAFE_OPTIONS = new Set([
   '--no-recurse-submodules',
 ]);
 
+const isDetach = (arg: Word) => arg.text === '--detach' && !arg.dynamic;
+
 function looksLikePath(operand: string): boolean {
   // A leading ./~: or trailing slash, a glob, or a file extension.
   return /^[./~:]|\/$|[*?\x5b]|\.[A-Za-z][A-Za-z0-9]*$/u.test(operand);
@@ -169,6 +171,7 @@ function looksLikePath(operand: string): boolean {
 function classifyCheckout(
   args: Word[],
   workdirs: string[] | undefined,
+  plainGlobals: boolean,
 ): Decision[] {
   const operands: Word[] = [];
 
@@ -190,6 +193,19 @@ function classifyCheckout(
 
   const [operand] = operands;
   if (operand.text === '-') return [];
+
+  // `--detach` never takes a path: Git refuses `--detach README.md`, so a
+  // literal operand can only be a commit and nothing in the tree is at risk.
+  // Any dynamic word could still expand to `-f`/`--force` or `--`, and a Git directory or
+  // work tree that cannot be established may be anywhere, so those ask.
+  if (
+    plainGlobals &&
+    workdirs &&
+    !createsBranch &&
+    !args.some(arg => arg.dynamic) &&
+    args.some(isDetach)
+  )
+    return [];
 
   const mayBePath =
     operand.dynamic ||
@@ -244,18 +260,24 @@ function classifyRestore(args: Word[]): Decision[] {
 
 // Git's options before the subcommand, removed. `dirs` collects `-C` values;
 // it is undefined when the options leave Git's directory unknown.
+// `plain` is true when the only options are `-C` with a literal path.
 export function withoutGitGlobals(args: Word[]): {
   rest: Word[];
   dirs: string[] | undefined;
+  plain: boolean;
 } {
   const dirs: string[] = [];
   let known = true;
+  let plain = true;
   let i = 0;
 
   // A dynamic word here may expand to options, never to a known subcommand.
   while (i < args.length && (args[i].dynamic || args[i].text.startsWith('-'))) {
     const {text, dynamic} = args[i];
     const hasValue = GIT_VALUE_OPTIONS.has(text);
+    const value = args[i + 1];
+    if (text !== '-C' || dynamic || !value || value.dynamic) plain = false;
+    else if (value.text.startsWith('~')) plain = false;
 
     if (text === '-C' && args[i + 1] && !args[i + 1].dynamic)
       dirs.push(args[i + 1].text);
@@ -265,17 +287,19 @@ export function withoutGitGlobals(args: Word[]): {
     i += hasValue ? 2 : 1;
   }
 
-  return {rest: args.slice(i), dirs: known ? dirs : undefined};
+  return {rest: args.slice(i), dirs: known ? dirs : undefined, plain};
 }
 
 // `args` start at the subcommand; `workdirs` are where Git may run.
 export function classifyGit(
   args: Word[],
   workdirs: string[] | undefined,
+  plainGlobals = true,
 ): Decision[] {
   const [subcommand, ...rest] = args;
   if (subcommand?.text === 'push') return classifyPush(rest);
-  if (subcommand?.text === 'checkout') return classifyCheckout(rest, workdirs);
+  if (subcommand?.text === 'checkout')
+    return classifyCheckout(rest, workdirs, plainGlobals);
   if (subcommand?.text === 'restore') return classifyRestore(rest);
   return [];
 }
