@@ -75,8 +75,8 @@ function runsHidden(words: string[]): boolean {
 // device and proc paths; input redirected from outside the repository.
 const RISKY_TEXT =
   /[$`]|[<>]\(|<<|(?<!>\s*)\/dev\/(?!null(?![\w/.-]))|>\s*\/dev\/(?!(?:null|stdout|stderr)(?![\w/.-]))|\/proc\/|<\s*(?:[/~]|\.\.)/u;
-// Groups, subshells, negation and brace expansion, outside quotes.
-const COMPOUND = /[(){}!]/u;
+// Groups, subshells, negation, brace expansion and comments, outside quotes.
+const COMPOUND = /[(){}!#]/u;
 // Anything but printable ASCII, space and newline. The scanner reads a
 // carriage return as a word break, which the shell does not.
 const UNUSUAL = /[^\x20-\x7e\n]/u;

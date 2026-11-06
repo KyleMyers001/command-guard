@@ -123,3 +123,15 @@ test('generated classes x companions x separators', async t => {
   assert.deepEqual(wrong, []);
   expectNotExempt(risky, cwd);
 });
+
+// The shell drops a comment and the scanner may not, so a command with an
+// unquoted `#` is read as written.
+test('a comment keeps main verdict', () => {
+  expectNotExempt([
+    'rm -rf dist #',
+    'rm -rf dist # clean',
+    'git merge main #x',
+    'rm -rf dist #; rm -rf src',
+    'echo a#b; rm -rf dist',
+  ]);
+});
