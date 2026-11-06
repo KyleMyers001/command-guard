@@ -1,7 +1,14 @@
 import {basename, resolve} from 'node:path';
 import {classifyGit, withoutGitGlobals} from './git.ts';
+import {ghArgs} from './gh.ts';
+import {classifyHelm, classifyKubectl} from './kube.ts';
+import {pipesToShell} from './pipeline.ts';
+import {classifyPublish, runsOutput} from './publish.ts';
 import {expandScripts} from './scripts.ts';
-import {parseSegments, type Word} from './shell.ts';
+import {spell, spellDynamic} from './spelling.ts';
+import {exemptTexts} from './gate.ts';
+import type {CommandTexts} from './match.ts';
+import {parseCommand, type ShellMode, type Word} from './shell.ts';
 
 // Decisions made from a command's decoded arguments rather than its text.
 // Reasons are fixed strings: they are shown to the model and must never
@@ -11,131 +18,38 @@ export interface Decision {
   reason: string;
   // Replaces the default "do not retry" advice when a safe form exists.
   advice?: string;
+  // An ask that does not apply to a command that may use the exemptions.
+  exemptible?: boolean;
 }
 
 export interface Analysis {
-  // One line per simple command, spelled without quoting, executable paths,
-  // or Git and GitHub global options, so text rules written for the plain
-  // spelling (`gh pr merge`) also match `gh -R owner/repo pr merge`.
+  // One line per simple command, without executable paths or tool globals.
   canonical: string;
+  // Canonical commands separately, for raw rules that must not span commands.
+  lines: string[];
   decisions: Decision[];
+  // Uncertain scans also retain the original scanner's stricter decisions.
+  legacy?: {canonical: string; decisions: Decision[]};
+  // What the ask rules read instead when the command may use the exemptions
+  // (gate.ts). Never set for an uncertain scan.
+  exempt?: CommandTexts;
+}
+
+export interface AnalyzeOptions {
+  // Whether a curl config file could redirect a download. Fails closed.
+  curlrcRisky?: () => boolean;
 }
 
 const TOOLS = new Set(['git', 'gh', 'kubectl', 'helm']);
-// More candidate directories than this count as not knowing the directory.
 const MAX_WORKDIRS = 8;
-
-const KUBECTL_DRY_RUNS = new Set(['--dry-run=client', '--dry-run=server']);
-const KUBECTL_MUTATIONS = new Set([
-  'delete',
-  'apply',
-  'replace',
-  'patch',
-  'scale',
-  'drain',
-  'cordon',
-]);
-const KUBECTL_ROLLOUT_MUTATIONS = new Set(['restart', 'undo']);
-const HELM_MUTATIONS = new Set([
-  'delete',
-  'uninstall',
-  'install',
-  'upgrade',
-  'rollback',
-]);
-
-const KUBECTL_MUTATES: Decision = {
-  verdict: 'ask',
-  reason:
-    'kubectl command changes cluster state; only a single --dry-run=client or --dry-run=server is exempt',
+const PIPE_TO_SHELL: Decision = {
+  verdict: 'deny',
+  reason: 'a download is piped into a shell, which runs it unseen',
+  advice: 'Download the script to a file, read it, then run it.',
 };
-const HELM_MUTATES: Decision = {
-  verdict: 'ask',
-  reason:
-    'helm command changes a release; dry-run flags are not trusted because their meaning varies by Helm version',
-};
-
-function classifyKubectl(args: Word[]): Decision[] {
-  const mutates = args.some(
-    (arg, i) =>
-      KUBECTL_MUTATIONS.has(arg.text) ||
-      (arg.text === 'rollout' &&
-        KUBECTL_ROLLOUT_MUTATIONS.has(args[i + 1]?.text)),
-  );
-  if (!mutates) return [];
-
-  // `--dry-run=none` runs for real, and a repeated flag is ambiguous.
-  const dryRuns = args.filter(arg => arg.text.startsWith('--dry-run'));
-  const isDryRun =
-    dryRuns.length === 1 &&
-    !dryRuns[0].dynamic &&
-    KUBECTL_DRY_RUNS.has(dryRuns[0].text);
-  return isDryRun ? [] : [KUBECTL_MUTATES];
-}
-
-function classifyHelm(args: Word[]): Decision[] {
-  return args.some(arg => HELM_MUTATIONS.has(arg.text)) ? [HELM_MUTATES] : [];
-}
-
-// `gh` accepts its repository option anywhere, including before the command.
-function withoutGhRepo(args: Word[]): Word[] {
-  const rest: Word[] = [];
-
-  for (let i = 0; i < args.length; i++) {
-    const {text} = args[i];
-    if (text === '-R' || text === '--repo') i++;
-    else if (!/^(-R.|--repo=)/u.test(text)) rest.push(args[i]);
-  }
-
-  return rest;
-}
-
-const GH_API_VALUE_OPTIONS = new Set([
-  '--method',
-  '--field',
-  '--raw-field',
-  '--header',
-  '--jq',
-  '--template',
-  '--input',
-  '--preview',
-  '--hostname',
-  '--cache',
-]);
-
-// `gh api -XPUT -ftitle=x` respelled `-X PUT -f title=x`, the spelling text
-// rules are written for. Only whole option words change: values of other
-// options, the endpoint, and words after `--` stay as written.
-function withSeparateApiValues(args: Word[]): Word[] {
-  if (args[0]?.text !== 'api') return args;
-  const rest: Word[] = [];
-
-  for (let i = 0; i < args.length; i++) {
-    const word = args[i];
-    if (word.text === '--') return [...rest, ...args.slice(i)];
-
-    // `-i` is the only short flag without a value, so it may lead a bundle.
-    const short = /^-(i*)([XfFHqtp])=?(.*)$/u.exec(word.text);
-    if (short?.[3]) {
-      for (let j = 0; j < short[1].length; j++) {
-        rest.push({text: '-i', dynamic: false});
-      }
-      rest.push({text: `-${short[2]}`, dynamic: false});
-      rest.push({text: short[3], dynamic: word.dynamic});
-      continue;
-    }
-
-    rest.push(word);
-    const valueFollows = short !== null || GH_API_VALUE_OPTIONS.has(word.text);
-    if (valueFollows && i + 1 < args.length) rest.push(args[++i]);
-  }
-
-  return rest;
-}
 
 // Where later commands may run once this one has. The shell's control flow
-// is not followed: a literal `cd` adds its target to the directories it may
-// have been run from. Undefined means the directory cannot be known.
+// is not followed: a literal cd adds its target to the possible directories.
 function workdirsAfter(
   segment: Word[],
   workdirs: string[] | undefined,
@@ -157,21 +71,43 @@ function workdirsAfter(
   return all.length > MAX_WORKDIRS ? undefined : all;
 }
 
-function spell(word: Word): string {
-  if (/^[A-Za-z0-9_@%+=:,./~^-]+$/u.test(word.text)) return word.text;
-  return `'${word.text.replaceAll("'", "'\\''")}'`;
+export function analyzeCommand(
+  command: string,
+  cwd: string,
+  options: AnalyzeOptions = {},
+): Analysis {
+  const curlrcRisky = options.curlrcRisky ?? (() => true);
+  const mode: ShellMode = {legacy: false, uncertain: false};
+  const analysis = analyzeWith(command, cwd, mode, curlrcRisky);
+  if (!mode.uncertain) return analysis;
+
+  const {canonical, decisions} = analyzeWith(
+    command,
+    cwd,
+    {legacy: true, uncertain: false},
+    curlrcRisky,
+  );
+  return {...analysis, legacy: {canonical, decisions}};
 }
 
-export function analyzeCommand(command: string, cwd: string): Analysis {
+function analyzeWith(
+  command: string,
+  cwd: string,
+  mode: ShellMode,
+  curlrcRisky: () => boolean,
+): Analysis {
   const lines: string[] = [];
-  const {segments, decisions} = expandScripts(parseSegments(command));
+  const parsed = parseCommand(command, mode);
+  const {segments, decisions, scripts} = expandScripts(parsed.segments, mode);
   let workdirs: string[] | undefined = [cwd];
+  let runs: boolean | undefined;
+  const runsCommandOutput = () => (runs ??= runsOutput(command));
 
   for (const segment of segments) {
-    // Before the tool lookup: `cd repo/git` names a tool but runs none.
     workdirs = workdirsAfter(segment, workdirs);
+    decisions.push(...classifyPublish(segment, runsCommandOutput));
 
-    // Wrappers such as `env X=1` or `time` come before the tool's own word.
+    // Before the tool lookup: cd repo/git names a tool but runs none.
     const at = segment.findIndex(
       word => !word.dynamic && TOOLS.has(basename(word.text)),
     );
@@ -182,9 +118,8 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
 
     const tool = basename(segment[at].text);
     let args = segment.slice(at + 1);
-
     if (tool === 'git') {
-      const {rest, dirs} = withoutGitGlobals(args);
+      const {rest, dirs, plain} = withoutGitGlobals(args);
       const movesWorkTree = segment
         .slice(0, at)
         .some(word => word.text.startsWith('GIT_WORK_TREE='));
@@ -193,19 +128,34 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
           ? workdirs?.map(dir => resolve(dir, ...dirs))
           : undefined;
       args = rest;
-      decisions.push(...classifyGit(args, gitDirs));
+      decisions.push(...classifyGit(args, gitDirs, plain));
+      // Narrowed ask rules must still see unsafe globals after normalization.
+      if (!plain)
+        lines.push(['git', '--global-options', ...args.map(spell)].join(' '));
     } else if (tool === 'gh') {
-      args = withSeparateApiValues(withoutGhRepo(args));
+      args = ghArgs(args);
     } else if (tool === 'kubectl') {
       decisions.push(...classifyKubectl(args));
     } else {
       decisions.push(...classifyHelm(args));
     }
 
-    lines.push(
-      [...segment.slice(0, at).map(spell), tool, ...args.map(spell)].join(' '),
-    );
+    const prefix = segment.slice(0, at);
+    lines.push([...prefix.map(spell), tool, ...args.map(spell)].join(' '));
+    const spelledDynamic = spellDynamic([...prefix, tool, ...args]);
+    if (spelledDynamic) lines.push(spelledDynamic);
   }
 
-  return {canonical: lines.join('\n'), decisions};
+  // The segments no longer show pipes, so inspect literal script texts too.
+  if ([command, ...scripts].some(pipesToShell)) decisions.push(PIPE_TO_SHELL);
+
+  const exempt = mode.uncertain
+    ? undefined
+    : exemptTexts(command, cwd, parsed, segments, curlrcRisky);
+  return {
+    canonical: lines.join('\n'),
+    lines,
+    decisions,
+    ...(exempt && {exempt}),
+  };
 }

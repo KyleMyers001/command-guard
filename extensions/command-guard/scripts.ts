@@ -1,6 +1,6 @@
 import {basename} from 'node:path';
 import type {Decision} from './commands.ts';
-import {parseSegments, type Word} from './shell.ts';
+import {parseSegments, type ShellMode, type Word} from './shell.ts';
 
 // Finds the literal scripts of `sh -c script` and `eval script`, which are
 // commands too. Script files and custom tools are never read.
@@ -54,7 +54,7 @@ function isWrapperOption(word: Word): boolean {
 
 // The command after leading assignments and `env` or `time`. `resolved` is
 // false when a wrapper option is unknown, so where the command starts is too.
-function unwrap(segment: Word[]): {command: Word[]; resolved: boolean} {
+export function unwrap(segment: Word[]): {command: Word[]; resolved: boolean} {
   let resolved = true;
   let i = 0;
 
@@ -136,12 +136,19 @@ function nestedScript(segment: Word[]): {script?: string; decision?: Decision} {
 }
 
 // `segments` followed by the commands of every literal script among them,
-// with a decision for each script that cannot be inspected.
-export function expandScripts(segments: Word[][]): {
+// with a decision for each script that cannot be inspected. `scripts` holds
+// the decoded text of each literal script, so text rules can read a pipeline
+// such as `curl url | sh` that the segments no longer show.
+export function expandScripts(
+  segments: Word[][],
+  mode?: ShellMode,
+): {
   segments: Word[][];
   decisions: Decision[];
+  scripts: string[];
 } {
   const decisions: Decision[] = [];
+  const scripts: string[] = [];
 
   function expand(list: Word[][], depth: number): Word[][] {
     return list.flatMap(segment => {
@@ -153,9 +160,10 @@ export function expandScripts(segments: Word[][]): {
         decisions.push(SCRIPT_TOO_DEEP);
         return [segment];
       }
-      return [segment, ...expand(parseSegments(script), depth + 1)];
+      scripts.push(script);
+      return [segment, ...expand(parseSegments(script, mode), depth + 1)];
     });
   }
 
-  return {segments: expand(segments, 0), decisions};
+  return {segments: expand(segments, 0), decisions, scripts};
 }

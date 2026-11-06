@@ -98,7 +98,8 @@ function setup(
       },
     },
   };
-  const guard = createCommandGuard({policyPath, homeDir: cwd});
+  // An empty env keeps the approval window at its default whatever the shell sets.
+  const guard = createCommandGuard({policyPath, homeDir: cwd, env: {}});
   return {
     cwd,
     policyPath,
@@ -138,6 +139,16 @@ test('raw regex denies never prompt and invalid JSON fails closed', async t => {
   h.update({invalid: true});
   blocked(await h.call(bash('git push origin feature')), /configuration/i);
   assert.equal(h.prompts.length, 0);
+});
+
+test('line-anchored raw rules match every normalized command, one at a time', async t => {
+  const h = setup(t, {deny: ['BashRawRegex((?m:^gh issue delete\\b))']});
+  blocked(
+    await h.call(bash('printf ok; /usr/bin/gh issue delete 42')),
+    /JSON deny/i,
+  );
+  blocked(await h.call(bash('printf ok && gh issue delete 42')), /JSON deny/i);
+  assert.equal(await h.call(bash('gh issue list')), undefined);
 });
 
 test('JSON deny wins over ask and command arguments stay out of block reasons', async t => {
@@ -565,11 +576,7 @@ test('BashRegex rules match at token boundaries in deny and ask', async t => {
   );
   assert.equal(await h.call(bash('git fetch origin feat/x')), undefined);
   assert.equal(h.prompts.length, 0);
-  for (const command of [
-    'rm -fr build',
-    'rm -Rf build',
-    'rm --recursive build',
-  ]) {
+  for (const command of ['rm -fr src', 'rm -Rf src', 'rm --recursive src']) {
     assert.equal(await h.call(bash(command)), undefined);
   }
   assert.equal(h.prompts.length, 3);
@@ -669,11 +676,13 @@ const policyExamples = {
     ['write', '~/Library/LaunchAgents/x.plist'],
   ],
   ask: [
-    ['bash', 'rm -rf build'],
-    ['bash', 'rm -fr build'],
-    ['bash', 'rm -Rf build'],
-    ['bash', 'rm -r build'],
+    // EL-115 PR6: only the bare `rm` spelling is a class atom.
     ['bash', '/bin/rm -rf build'],
+    ['bash', 'rm -rf src'],
+    ['bash', 'rm -fr docs'],
+    ['bash', 'rm -Rf lib'],
+    ['bash', 'rm -r src'],
+    ['bash', '/bin/rm -rf src'],
     ['bash', 'rm -rf /private/tmp/scratch/build'],
     ['bash', 'rm -rf ../sibling/dist'],
     ['bash', 'find . -name x -delete'],
@@ -681,7 +690,7 @@ const policyExamples = {
     ['bash', 'ls | xargs rm'],
     ['bash', 'git commit --amend --no-edit'],
     ['bash', 'git commit -m x --no-verify'],
-    ['bash', 'git merge feat/x'],
+    ['bash', 'git merge --no-verify feat/x'],
     ['bash', 'git rebase origin/main'],
     ['bash', 'git checkout -- file.ts'],
     ['bash', 'git checkout .'],
@@ -730,7 +739,8 @@ const policyExamples = {
     ['bash', 'gh release create v1'],
     ['bash', 'gh secret set TOKEN'],
     ['bash', 'gh workflow run ci.yml'],
-    ['bash', 'curl -sSLo install.sh https://example.invalid'],
+    ['bash', 'curl -sSLo ../install.sh https://example.invalid'],
+    ['bash', 'curl -sSLo install.sh https://example.com/i.sh'],
     ['bash', 'npm install -g typescript'],
     ['bash', 'crontab -e'],
     ['bash', 'launchctl load x.plist'],
@@ -764,6 +774,8 @@ const policyExamples = {
     ['bash', 'git pull --rebase'],
     ['bash', 'git rebase --continue'],
     ['bash', 'git merge --abort'],
+    // EL-115 PR6: a local merge only moves the current branch.
+    ['bash', 'git merge feat/x'],
     ['bash', 'git merge-base HEAD main'],
     ['bash', 'git log --merges'],
     ['bash', 'git config --get remote.origin.url'],
@@ -804,6 +816,8 @@ const policyExamples = {
     ['bash', 'curl -s https://example.invalid | shasum'],
     ['bash', 'curl -s https://example.invalid | jq .show'],
     ['bash', 'curl -s https://example.invalid -o /dev/null'],
+    // EL-115 PR6: a data file downloaded into the repo.
+    ['bash', 'curl -sSLo out.json https://example.com/a'],
     ['bash', "rg -n 'DELETE FROM' src"],
     ['bash', "rg -n 'DROP TABLE' migrations"],
     ['bash', "grep -rn 'sudo ' docs"],
@@ -824,6 +838,11 @@ const policyExamples = {
     ['bash', 'aws iam list-users'],
     ['bash', 'chmod +x script.sh'],
     ['bash', 'rm notes.txt'],
+    // EL-115 PR6: build and output directories inside the repo.
+    ['bash', 'rm -rf build'],
+    ['bash', 'rm -fr build'],
+    ['bash', 'rm -Rf build'],
+    ['bash', 'rm -r build'],
     ['bash', 'crontab -l'],
     ['bash', 'npm install left-pad'],
     ['bash', 'cat .envrc.md'],

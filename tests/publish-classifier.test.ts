@@ -1,0 +1,261 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {analyzeCommand} from '../extensions/command-guard/commands.ts';
+import {expectAll} from './helpers/verdict.ts';
+
+// EL-115 / PR 5. Commands are only parsed, never executed.
+
+const analysis = (command: string) =>
+  analyzeCommand(command, import.meta.dirname).decisions;
+const classifierDenies = (command: string) =>
+  analysis(command).some(decision => /package publish/u.test(decision.reason));
+
+test('denies publish through every npm, pnpm and yarn spelling', async () => {
+  await expectAll(
+    [
+      'npm publish',
+      'npm publish --dry-run',
+      'npm --workspaces publish',
+      'npm -ws publish',
+      'npm -w pkg publish',
+      'npm -w pkg -w other publish',
+      'npm --workspace pkg publish',
+      'npm --workspace=pkg publish',
+      'npm --prefix packages/a publish',
+      'npm --registry https://r.invalid publish --access public',
+      'npm pu',
+      'npm pub --tag next',
+      'npm publis',
+      'npm run publish',
+      'npm run-script publish',
+      'npm run-s publish',
+      'npm rum publish',
+      'npm run -w pkg publish',
+      'npm exec -- changeset publish',
+      'npm exec lerna publish',
+      'pnpm publish',
+      'pnpm -r publish',
+      'pnpm --recursive publish',
+      'pnpm --filter pkg publish',
+      'pnpm --filter=pkg publish',
+      'pnpm -F pkg publish',
+      'pnpm -C dir publish',
+      'pnpm --dir dir -r publish',
+      'pnpm -w publish',
+      'pnpm --workspace-root publish',
+      'pnpm recursive publish',
+      'pnpm recursive run publish',
+      'pnpm multi run publish',
+      'pnpm m run publish',
+      'pnpm recursive exec lerna publish',
+      'pnpm recursive --filter pkg run publish',
+      'pnpm recursive recursive publish',
+      'pnpm run publish',
+      'pnpm exec lerna publish',
+      'pnpm dlx changeset publish',
+      'pnpm changeset publish',
+      'yarn publish',
+      'yarn --cwd pkg publish',
+      'yarn npm publish',
+      'yarn workspace pkg publish',
+      'yarn workspace pkg npm publish',
+      'yarn workspaces foreach -A npm publish',
+      'yarn workspaces foreach --all --no-private npm publish',
+      'yarn workspaces run publish',
+      'yarn run publish',
+      'yarn lerna publish',
+      'yarn dlx changeset publish',
+      'yarn exec lerna publish',
+      'yarn exec "lerna publish"',
+      'yarn exec "tsc & npm publish"',
+      'pnpm dlx -c lerna publish',
+      'npx -c "lerna publish"',
+      "npx --call='lerna publish'",
+      "npm exec --call='pnpm -r publish'",
+      'npx -c \'bash -c "pnpm -r publish"\'',
+      'yarn exec \'sh -c "npm -w pkg publish"\'',
+      'npx --call "pnpm -r publish"',
+      'npm exec -c "changeset publish"',
+    ],
+    'DENY',
+  );
+});
+
+test("round 2: an info flag that is an option's value does not hide a publish", async () => {
+  await expectAll(
+    [
+      'npm --registry -v publish',
+      'npm --otp -h publish',
+      'npm --access -h publish',
+      'npm --cache -h publish',
+      'npm --loglevel -h publish',
+      'npm --userconfig -h publish',
+      'npm --registry -v pub',
+      'npm --otp -h pu',
+      'npm --scope -v publis',
+      'npm --registry --help publish',
+      'npm --otp -? publish',
+      'npm --unknown-option -v publish',
+      'npm -w pkg --tag -h publish',
+    ],
+    'DENY',
+  );
+});
+
+test('round 2: script strings given to exec, dlx and npx are classified', async () => {
+  await expectAll(
+    [
+      "pnpm -c exec 'lerna publish'",
+      "pnpm -c exec 'npm publish'",
+      "pnpm exec 'npm publish'",
+      "pnpm dlx -c 'lerna publish'",
+      "pnpm dlx 'changeset publish'",
+      'yarn exec -- lerna publish',
+      "yarn exec -- 'npm publish'",
+      "npx -c='lerna publish'",
+      "npx '-clerna publish'",
+      "npx -y -c 'lerna publish'",
+      "npm exec --call='lerna publish' -- tsc",
+      "npx --unknown -c 'lerna publish'",
+      "npx $OPT -c 'npm publish'",
+    ],
+    'DENY',
+  );
+});
+
+test('denies lerna and changesets publish, however they are started', async () => {
+  await expectAll(
+    [
+      'lerna publish',
+      'lerna publish from-git',
+      'lerna --loglevel silly publish',
+      'lerna run publish',
+      'lerna exec -- npm publish',
+      'changeset publish',
+      'changeset publish --otp=123456',
+      'npx lerna publish',
+      'npx lerna@7 publish from-package',
+      'npx -y changeset publish',
+      'npx -p @changesets/cli changeset publish',
+      'npx @changesets/cli publish',
+      'npx npm@10 publish',
+      './node_modules/.bin/lerna publish',
+      '/usr/local/bin/npm publish',
+    ],
+    'DENY',
+  );
+});
+
+test('denies publish behind wrappers, nesting and unknown options', async () => {
+  await expectAll(
+    [
+      'FOO=1 pnpm -r publish',
+      'env FOO=1 pnpm -r publish',
+      'env -C dir pnpm -r publish',
+      'time npm -w pkg publish',
+      'sudo pnpm -r publish',
+      'sudo -u deploy pnpm -r publish',
+      'nohup yarn npm publish',
+      'command pnpm -r publish',
+      'exec npm --workspaces publish',
+      'xargs pnpm -r publish',
+      'timeout 60 npm -w pkg publish',
+      'corepack pnpm -r publish',
+      'bash -c "pnpm -r publish"',
+      "sh -c 'npm -w pkg publish'",
+      "eval 'yarn npm publish'",
+      'echo ok; pnpm -r publish',
+      'git status && npm --workspaces publish',
+      'echo $(pnpm -r publish)',
+      'npm --unknown-flag publish',
+      'npm $OPTS publish',
+    ],
+    'DENY',
+  );
+});
+
+test('the classifier, not only the text rule, denies the new forms', () => {
+  for (const command of [
+    'npm publish',
+    'pnpm -r publish',
+    'pnpm --filter pkg publish',
+    'npm -w pkg publish',
+    'npm --workspaces publish',
+    'npm run publish',
+    'lerna publish',
+    'changeset publish',
+  ]) {
+    assert.equal(classifierDenies(command), true, command);
+  }
+});
+
+test('leaves everything that is not a publish alone', () => {
+  for (const command of [
+    'npm install',
+    'npm i -D typescript',
+    'npm ci',
+    'npm test',
+    'npm run build',
+    'npm run publish-docs',
+    'npm run build -w pkg',
+    'npm pack',
+    'npm pack --dry-run',
+    'npm ls --workspaces',
+    'npm -w pkg run build',
+    'npm --version',
+    // Help and version flags that come first stop npm.
+    'npm -v publish',
+    'npm --version pub',
+    'pnpm dlx -c prettier --check .',
+    'yarn exec -- tsc --noEmit',
+    'npm --help publish',
+    'npm -h publish',
+    'npm --version publish',
+    'pnpm recursive run build',
+    'pnpm recursive exec tsc',
+    'npm help publish',
+    'npm config get registry',
+    'npm exec -- tsc --noEmit',
+    'pnpm install',
+    'pnpm -r test',
+    'pnpm -r run build',
+    'pnpm --filter pkg build',
+    'pnpm -w install',
+    'pnpm exec tsc',
+    'pnpm dlx prettier --check .',
+    'yarn exec tsc --noEmit',
+    'yarn exec "tsc & babel src"',
+    'npx -c "tsc --noEmit"',
+    'pnpm recursive install',
+    'yarn',
+    'yarn install',
+    'yarn run build',
+    'yarn workspaces foreach run build',
+    'yarn workspace pkg build',
+    'yarn npm whoami',
+    'lerna run build',
+    'lerna version',
+    'lerna exec -- tsc',
+    'changeset',
+    'changeset add',
+    'changeset version',
+    'changeset status',
+    'npx prettier --check .',
+    'npx tsc --noEmit',
+    'npx -y create-vite app',
+    // Quoted text, and words of a tool that is not a runner. The raw policy
+    // rule still denies some of these (`rg 'a|npm publish'`) until PR 4.
+    "rg 'a|npm publish' docs",
+    'git commit -m "pnpm -r publish notes"',
+    "printf 'yarn npm publish\\n'",
+    'cat docs/npm-publish.md',
+    'grep -r "yarn publish" .',
+    'man npm-publish',
+    'exec echo ok',
+    'find . -name publish',
+    'flock /tmp/lock git status',
+    'rg publish docs',
+  ]) {
+    assert.equal(classifierDenies(command), false, command);
+  }
+});

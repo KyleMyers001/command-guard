@@ -603,7 +603,7 @@ test('canonical spelling drops global options, paths, and needless quotes', () =
   );
   assert.equal(
     canonical("/usr/bin/git -c a=b --no-pager reset '--hard'"),
-    'git reset --hard',
+    'git --global-options reset --hard\ngit reset --hard',
   );
   assert.equal(
     canonical('env X=1 "git" push origin \'main\''),
@@ -614,7 +614,9 @@ test('canonical spelling drops global options, paths, and needless quotes', () =
     'cd repo\ngh api -X DELETE repos/o/r',
   );
   assert.equal(
-    canonical("bash -lc 'gh -R o/r pr merge 4'").split('\n').at(-1),
+    canonical("bash -lc 'gh -R o/r pr merge 4'")
+      .split('\n')
+      .find(line => line.startsWith('gh ')),
     'gh pr merge 4',
   );
 });
@@ -648,7 +650,7 @@ test('canonical spelling separates attached GitHub API flag values', () => {
   );
   assert.equal(
     canonical('gh api -X"$METHOD" repos/o/r'),
-    "gh api -X '$METHOD' repos/o/r",
+    "gh api -X '$METHOD' repos/o/r\ngh api -X $DYNAMIC repos/o/r",
   );
   assert.equal(canonical('gh api -XGET repos/o/r'), 'gh api -X GET repos/o/r');
   // Separate spellings, other options' values, endpoints, and words after
