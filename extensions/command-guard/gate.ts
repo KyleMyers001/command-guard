@@ -1,6 +1,11 @@
 import {basename} from 'node:path';
 import {curlWrites} from './curl.ts';
-import {exemptClass, type ExemptClass} from './exemptions.ts';
+import {
+  exemptClass,
+  type ExemptClass,
+  isDisposable,
+  removedDirs,
+} from './exemptions.ts';
 import type {CommandTexts} from './match.ts';
 import {filters, isSafe} from './safe.ts';
 import type {Parsed, Word} from './shell.ts';
@@ -124,10 +129,12 @@ const span = (command: string, segment: Word[]): string =>
   command.slice(segment[0].start, end(segment[segment.length - 1]));
 
 // The texts the ask rules read when the command may use the exemptions,
-// otherwise undefined. `curlrcRisky` reports whether a curl config file could
+// otherwise undefined. `cwd` is where a removal's directories are checked
+// for repositories (exemptions.ts). `curlrcRisky` reports whether a curl config file could
 // redirect a download.
 export function exemptTexts(
   command: string,
+  cwd: string,
   parsed: Parsed,
   expanded: Word[][],
   curlrcRisky: () => boolean,
@@ -187,6 +194,13 @@ export function exemptTexts(
       ))
   )
     return undefined;
+  // With no directory change, each removal names a directory under cwd.
+  for (let i = 0; i < segments.length; i++)
+    if (
+      classes[i] === 'rm' &&
+      !removedDirs(segments[i]).every(name => isDisposable(cwd, name))
+    )
+      return undefined;
 
   // A download must end the command and no curl config may redirect it; any
   // other curl that writes a file keeps the ask.

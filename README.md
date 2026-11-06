@@ -263,7 +263,16 @@ narrowed.
   `node_modules`, `.next`, or `coverage`, each named bare (optionally `./`)
   with no directory part, `..`, quoting, glob, or trailing slash. GNU
   `rm -rf link/` empties a symlink's target and `rm -rf link/dist` crosses a
-  symlinked ancestor, so `packages/app/dist` still asks.
+  symlinked ancestor, so `packages/app/dist` still asks. The name alone is
+  not enough: before deciding, the guard reads each target under the working
+  directory without following symlinks. A target that is missing, or is not a
+  directory (a symlink loses only the link), stays exempt. A directory keeps
+  the ask when `.git` (a directory, or a file as in worktrees and submodules)
+  is at its root or in any immediate child directory. The check goes one
+  level down only: `build/tools/.git` asks, `build/a/b/.git` is not seen, and
+  symlinked children are not entered. A directory with more than 5,000
+  top-level entries, or any read error, also keeps the ask. The check runs
+  before the command, so a change in between is not seen.
 - `gh api graphql` with at least one option, each of them: `-f`/`-F`/
   `--field`/`--raw-field` with a single-quoted literal `query=` (no `@file`
   and no `{owner}`/`{repo}`/`{branch}` placeholder) or a simple variable;

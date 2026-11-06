@@ -1,3 +1,5 @@
+import {type Dir, lstatSync, opendirSync, type Stats} from 'node:fs';
+import {join, resolve} from 'node:path';
 import {isPublicUrl, isRepoOutput} from './curl.ts';
 import type {Word} from './shell.ts';
 
@@ -40,6 +42,71 @@ function isBuildDirRemoval(args: Word[]): boolean {
     args.every(plain) &&
     args.slice(dirs).every(arg => BUILD_DIR.test(arg.text))
   );
+}
+
+// The directories an exempt `rm` segment names.
+export function removedDirs(segment: Word[]): string[] {
+  const args = segment.slice(1);
+  return args
+    .slice(args.findIndex(arg => !RM_FLAG.test(arg.text)))
+    .map(arg => arg.text);
+}
+
+// A build directory's name does not make it disposable: a checkout or
+// worktree can live under `build`. The exemption holds only when, read
+// without following symlinks, the target is missing, is not a directory (a
+// symlink loses only the link), or is a directory with no `.git` (directory
+// or file, as in worktrees and submodules) at its root or in any immediate
+// child directory. Deeper levels are not read. Symlinked children are not
+// entered. More than MAX_TARGET_ENTRIES top-level entries, or any other
+// filesystem error, keeps the ask. The check runs before the command, so a
+// change in between is not seen.
+export const MAX_TARGET_ENTRIES = 5000;
+
+// The entry at `path`, null when it does not exist, undefined when it
+// cannot be read.
+function entry(path: string, missing: string[]): Stats | null | undefined {
+  try {
+    return lstatSync(path);
+  } catch (error) {
+    const {code} = error as NodeJS.ErrnoException;
+    return code !== undefined && missing.includes(code) ? null : undefined;
+  }
+}
+
+const noGit = (dir: string): boolean =>
+  entry(join(dir, '.git'), ['ENOENT', 'ENOTDIR']) === null;
+
+export function isDisposable(cwd: string, name: string): boolean {
+  const target = resolve(cwd, name);
+  const stat = entry(target, ['ENOENT']);
+  if (stat === null) return true;
+  if (stat === undefined) return false;
+  if (!stat.isDirectory()) return true;
+  if (!noGit(target)) return false;
+
+  let dir: Dir | undefined;
+  try {
+    dir = opendirSync(target);
+    for (let count = 1; ; count++) {
+      const child = dir.readSync();
+      if (child === null) return true;
+      if (count > MAX_TARGET_ENTRIES) return false;
+      const path = join(target, child.name);
+      let isDir = child.isDirectory();
+      // A type the listing does not report is read here.
+      if (!isDir && !child.isSymbolicLink() && !child.isFile()) {
+        const stat = entry(path, []);
+        if (!stat) return false;
+        isDir = stat.isDirectory();
+      }
+      if (isDir && !noGit(path)) return false;
+    }
+  } catch {
+    return false;
+  } finally {
+    dir?.closeSync();
+  }
 }
 
 // Git's arguments from the subcommand on, when the only options before it

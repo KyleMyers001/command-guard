@@ -149,7 +149,7 @@ function analyzeWith(
 
   const exempt = mode.uncertain
     ? undefined
-    : exemptTexts(command, parsed, segments, curlrcRisky);
+    : exemptTexts(command, cwd, parsed, segments, curlrcRisky);
   return {
     canonical: lines.join('\n'),
     lines,
