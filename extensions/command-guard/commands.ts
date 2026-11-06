@@ -1,5 +1,7 @@
 import {basename, resolve} from 'node:path';
 import {classifyGit, withoutGitGlobals} from './git.ts';
+import {ghArgs} from './gh.ts';
+import {invocationViews, spell} from './invocations.ts';
 import {pipesToShell} from './pipeline.ts';
 import {classifyPublish} from './publish.ts';
 import {expandScripts} from './scripts.ts';
@@ -29,6 +31,11 @@ export interface Analysis {
   // same command as the guard's first scanner read it. Callers apply their
   // rules to both readings and take the stricter result.
   legacy?: {canonical: string; decisions: Decision[]};
+  // One line per simple command as it would be started: see invocations.ts.
+  // Built on first read, so a policy with no `BashCmdRegex` rule never pays for
+  // it. Undefined when there is no view (a large or deeply nested command, or
+  // a script that cannot be read). A `BashCmdRegex` rule then matches.
+  readonly invocations?: string[];
 }
 
 const TOOLS = new Set(['git', 'gh', 'kubectl', 'helm']);
@@ -92,62 +99,6 @@ function classifyHelm(args: Word[]): Decision[] {
   return args.some(arg => HELM_MUTATIONS.has(arg.text)) ? [HELM_MUTATES] : [];
 }
 
-// `gh` accepts its repository option anywhere, including before the command.
-function withoutGhRepo(args: Word[]): Word[] {
-  const rest: Word[] = [];
-
-  for (let i = 0; i < args.length; i++) {
-    const {text} = args[i];
-    if (text === '-R' || text === '--repo') i++;
-    else if (!/^(-R.|--repo=)/u.test(text)) rest.push(args[i]);
-  }
-
-  return rest;
-}
-
-const GH_API_VALUE_OPTIONS = new Set([
-  '--method',
-  '--field',
-  '--raw-field',
-  '--header',
-  '--jq',
-  '--template',
-  '--input',
-  '--preview',
-  '--hostname',
-  '--cache',
-]);
-
-// `gh api -XPUT -ftitle=x` respelled `-X PUT -f title=x`, the spelling text
-// rules are written for. Only whole option words change: values of other
-// options, the endpoint, and words after `--` stay as written.
-function withSeparateApiValues(args: Word[]): Word[] {
-  if (args[0]?.text !== 'api') return args;
-  const rest: Word[] = [];
-
-  for (let i = 0; i < args.length; i++) {
-    const word = args[i];
-    if (word.text === '--') return [...rest, ...args.slice(i)];
-
-    // `-i` is the only short flag without a value, so it may lead a bundle.
-    const short = /^-(i*)([XfFHqtp])=?(.*)$/u.exec(word.text);
-    if (short?.[3]) {
-      for (let j = 0; j < short[1].length; j++) {
-        rest.push({text: '-i', dynamic: false});
-      }
-      rest.push({text: `-${short[2]}`, dynamic: false});
-      rest.push({text: short[3], dynamic: word.dynamic});
-      continue;
-    }
-
-    rest.push(word);
-    const valueFollows = short !== null || GH_API_VALUE_OPTIONS.has(word.text);
-    if (valueFollows && i + 1 < args.length) rest.push(args[++i]);
-  }
-
-  return rest;
-}
-
 // Where later commands may run once this one has. The shell's control flow
 // is not followed: a literal `cd` adds its target to the directories it may
 // have been run from. Undefined means the directory cannot be known.
@@ -170,11 +121,6 @@ function workdirsAfter(
   const reached = workdirs.map(dir => resolve(dir, target.text));
   const all = [...new Set([...workdirs, ...reached])];
   return all.length > MAX_WORKDIRS ? undefined : all;
-}
-
-function spell(word: Word): string {
-  if (/^[A-Za-z0-9_@%+=:,./~^-]+$/u.test(word.text)) return word.text;
-  return `'${word.text.replaceAll("'", "'\\''")}'`;
 }
 
 export function analyzeCommand(command: string, cwd: string): Analysis {
@@ -226,7 +172,7 @@ function analyzeWith(command: string, cwd: string, mode: ShellMode): Analysis {
       args = rest;
       decisions.push(...classifyGit(args, gitDirs));
     } else if (tool === 'gh') {
-      args = withSeparateApiValues(withoutGhRepo(args));
+      args = ghArgs(args);
     } else if (tool === 'kubectl') {
       decisions.push(...classifyKubectl(args));
     } else {
@@ -242,5 +188,19 @@ function analyzeWith(command: string, cwd: string, mode: ShellMode): Analysis {
   // and of each literal shell string.
   if ([command, ...scripts].some(pipesToShell)) decisions.push(PIPE_TO_SHELL);
 
-  return {canonical: lines.join('\n'), lines, decisions};
+  let views: string[] | undefined;
+  let built = false;
+
+  return {
+    canonical: lines.join('\n'),
+    lines,
+    decisions,
+    get invocations() {
+      if (!built) {
+        views = invocationViews(segments);
+        built = true;
+      }
+      return views;
+    },
+  };
 }

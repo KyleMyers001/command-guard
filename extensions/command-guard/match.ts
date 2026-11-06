@@ -53,8 +53,18 @@ export interface CommandTexts {
 // running from one command into the next; the raw and joined texts keep every
 // rule seeing what it saw before lines existed. A custom raw regex that spans
 // lines can still match inside the raw or joined text.
-function bashMatches(rule: Rule, texts: CommandTexts): boolean {
+function bashMatches(
+  rule: Rule,
+  texts: CommandTexts,
+  views: string[] | undefined,
+): boolean {
   const {regex, pattern} = rule;
+  if (rule.view === 'invocation' && regex) {
+    // No view (the command is too large or nested, or runs a script that
+    // cannot be read): the rule is taken to match, so a deny denies and an ask
+    // asks. Never a silent allow.
+    return views === undefined || views.some(text => regex.test(text));
+  }
   const spellings =
     rule.flatten === false
       ? [texts.raw, texts.canonical, ...texts.lines]
@@ -117,9 +127,21 @@ export function matches(
   targets: string[] | CommandTexts,
   cwd: string,
   home: string,
+  views?: string[],
 ): boolean {
   if (!appliesTo(rule, tool)) return false;
-  if (!Array.isArray(targets)) return bashMatches(rule, targets);
+  if (!Array.isArray(targets)) return bashMatches(rule, targets, views);
+  if (tool === 'bash') {
+    return bashMatches(
+      rule,
+      {
+        raw: targets[0] ?? '',
+        canonical: targets[1] ?? '',
+        lines: targets.slice(2),
+      },
+      views,
+    );
+  }
   if (rule.pattern === undefined) return true;
 
   return policyPaths(rule.pattern, cwd, home).some(pattern => {

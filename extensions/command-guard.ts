@@ -134,10 +134,22 @@ export function createCommandGuard(options: GuardOptions = {}) {
     // 2. The policy loads before any verdict below, so a broken one blocks even
     // a command that analysis alone would let through.
     const policy = loadPolicy(policyFile);
-    const matchesCall = (rule: Rule) =>
-      texts && analysis
+    // The view is built on first use: only a `BashCmdRegex` rule reads it.
+    const matchesCall = (rule: Rule) => {
+      if (rule.view === 'invocation') {
+        return matches(
+          rule,
+          tool,
+          texts ?? targets,
+          ctx.cwd,
+          homeDir,
+          analysis?.invocations,
+        );
+      }
+      return texts && analysis
         ? matchesEither(rule, tool, texts, analysis, ctx.cwd, homeDir)
         : matches(rule, tool, targets, ctx.cwd, homeDir);
+    };
     const decisions = allDecisions(analysis);
 
     // 3. Command-analysis and JSON denies, which no approval can override.
