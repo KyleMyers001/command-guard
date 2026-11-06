@@ -1,7 +1,6 @@
 import {join, resolve} from 'node:path';
 import {canonicalPath} from './paths.ts';
 import type {GuardTool, Rule} from './policy.ts';
-import {hasTriggers, textVariants} from './triggers.ts';
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
@@ -62,28 +61,8 @@ export interface CommandTexts {
 // running from one command into the next; the raw and joined texts keep every
 // rule seeing what it saw before lines existed. A custom raw regex that spans
 // lines can still match inside the raw or joined text.
-function bashMatches(
-  rule: Rule,
-  texts: CommandTexts,
-  views: string[] | undefined,
-): boolean {
+function bashMatches(rule: Rule, texts: CommandTexts): boolean {
   const {regex, pattern} = rule;
-  if (rule.view === 'invocation' && regex) {
-    if (views) return views.some(text => regex.test(text));
-    // No view (the command is too large or nested, or runs a script that
-    // cannot be read). If the command holds the rule's trigger words the rule
-    // matches, so a deny denies and an ask asks; with no trigger words to go
-    // by, any such command does. Otherwise it is read as text, like BashRegex.
-    const {triggers} = rule;
-    if (
-      !triggers ||
-      hasTriggers(
-        textVariants([texts.raw, texts.canonical]).join('\n'),
-        triggers,
-      )
-    )
-      return true;
-  }
   const spellings =
     rule.flatten === false
       ? [texts.raw, texts.canonical, ...texts.lines]
@@ -146,20 +125,15 @@ export function matches(
   targets: string[] | CommandTexts,
   cwd: string,
   home: string,
-  views?: string[],
 ): boolean {
   if (!appliesTo(rule, tool)) return false;
-  if (!Array.isArray(targets)) return bashMatches(rule, targets, views);
+  if (!Array.isArray(targets)) return bashMatches(rule, targets);
   if (tool === 'bash') {
-    return bashMatches(
-      rule,
-      {
-        raw: targets[0] ?? '',
-        canonical: targets[1] ?? '',
-        lines: targets.slice(2),
-      },
-      views,
-    );
+    return bashMatches(rule, {
+      raw: targets[0] ?? '',
+      canonical: targets[1] ?? '',
+      lines: targets.slice(2),
+    });
   }
   if (rule.pattern === undefined) return true;
 

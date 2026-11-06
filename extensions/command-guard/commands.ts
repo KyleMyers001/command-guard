@@ -1,7 +1,6 @@
 import {basename, resolve} from 'node:path';
 import {classifyGit, withoutGitGlobals} from './git.ts';
 import {ghArgs} from './gh.ts';
-import {invocationViews} from './invocations.ts';
 import {classifyHelm, classifyKubectl} from './kube.ts';
 import {pipesToShell} from './pipeline.ts';
 import {classifyPublish} from './publish.ts';
@@ -30,8 +29,6 @@ export interface Analysis {
   decisions: Decision[];
   // Uncertain scans also retain the original scanner's stricter decisions.
   legacy?: {canonical: string; decisions: Decision[]};
-  // Built on first read, only when a BashCmdRegex rule needs the view.
-  readonly invocations?: string[];
 }
 
 const TOOLS = new Set(['git', 'gh', 'kubectl', 'helm']);
@@ -74,9 +71,7 @@ export function analyzeCommand(command: string, cwd: string): Analysis {
     legacy: true,
     uncertain: false,
   });
-  // Spreading analysis would eagerly evaluate its lazy invocation getter.
-  analysis.legacy = {canonical, decisions};
-  return analysis;
+  return {...analysis, legacy: {canonical, decisions}};
 }
 
 function analyzeWith(command: string, cwd: string, mode: ShellMode): Analysis {
@@ -141,18 +136,5 @@ function analyzeWith(command: string, cwd: string, mode: ShellMode): Analysis {
   )
     lines.push('__chain_unsafe__', carriedClasses(command));
 
-  let views: string[] | undefined;
-  let built = false;
-  return {
-    canonical: lines.join('\n'),
-    lines,
-    decisions,
-    get invocations() {
-      if (!built) {
-        views = invocationViews(segments);
-        built = true;
-      }
-      return views;
-    },
-  };
+  return {canonical: lines.join('\n'), lines, decisions};
 }

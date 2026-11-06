@@ -1,36 +1,7 @@
-import assert from 'node:assert/strict';
 import test from 'node:test';
-import {analyzeCommand} from '../extensions/command-guard/commands.ts';
-import {viewStats} from '../extensions/command-guard/invocations.ts';
-import {expectAll, repository, verdict} from './helpers/verdict.ts';
+import {expectAll} from './helpers/verdict.ts';
 
 // Classifier-only: none of these command strings are ever executed.
-test('uncertain scans preserve lazy invocation views and cache the result', () => {
-  for (const command of [
-    'diff <(a) <(b)',
-    'exec > >(tee log)',
-    'ls !(a|b)',
-    "echo 'unterminated",
-  ]) {
-    const before = viewStats.built;
-    const analysis = analyzeCommand(command, repository);
-    assert.ok(analysis.legacy, command);
-    assert.equal(viewStats.built, before, command);
-    const first = analysis.invocations;
-    assert.equal(viewStats.built, before + 1, command);
-    assert.equal(analysis.invocations, first, command);
-    assert.equal(viewStats.built, before + 1, command);
-  }
-});
-
-test('the shipped policy never builds views for uncertain scans', async () => {
-  const before = viewStats.built;
-  for (const command of ['diff <(a) <(b)', 'ls !(a|b)']) {
-    await verdict(command);
-  }
-  assert.equal(viewStats.built, before);
-});
-
 test('all seven prompt-exempt classes preserve deny precedence in chains', async () => {
   const classes = [
     'rm -rf dist',

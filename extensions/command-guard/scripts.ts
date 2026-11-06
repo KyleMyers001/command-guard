@@ -40,7 +40,7 @@ const EVAL_UNRESOLVED: Decision = {
   reason: 'eval of a computed command, which the command guard cannot inspect',
 };
 
-export function runsScripts(word: Word): boolean {
+function runsScripts(word: Word): boolean {
   return (
     !word.dynamic && (word.text === 'eval' || SHELLS.has(basename(word.text)))
   );
