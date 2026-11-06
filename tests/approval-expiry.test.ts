@@ -14,8 +14,8 @@ import {
 // CG-AP-001..004 and EL-117: approval expiry. The default window stays 120 s;
 // an expired or unanswered prompt blocks and tells the agent to move on.
 const repository = resolve(import.meta.dirname, '..');
-// Asks under the production policy, so the prompt path is the real one.
-const COMMAND = 'rm -rf build';
+// Source deletion still asks after build-directory cleanup is exempted.
+const COMMAND = 'rm -rf src';
 const DEFAULT_MS = 120_000;
 
 function harness(

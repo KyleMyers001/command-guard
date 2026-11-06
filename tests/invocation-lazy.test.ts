@@ -59,7 +59,7 @@ const edge = [
   `sudo ${'abcdefg '.repeat(990)}`,
   `${'sudo '.repeat(8)}${'abcdefg '.repeat(900)}`,
   'git push --force origin x',
-  `FOO=1 pnpm -r publish; find . ${'-exec a \\; '.repeat(300)}`,
+  `FOO=1 viewpm -r publish; find . ${'-exec a \\; '.repeat(300)}`,
 ];
 
 async function builtBy(
@@ -82,8 +82,8 @@ test('a policy with no view rule never builds the view', async t => {
   const policy = join(fixture(t), 'policy.json');
   writePolicy(
     policy,
-    ['BashRegex(^pnpm -r publish)', 'Bash(git push *)'],
-    ['BashRegex(^npm publish)'],
+    ['BashRegex(^viewpm -r publish)', 'Bash(git push *)'],
+    ['BashRegex(^viewnpm publish)'],
   );
   const guard = createCommandGuard({policyPath: policy});
   assert.equal(await builtBy(guard, edge), 0);
@@ -93,20 +93,20 @@ test('a BashCmdRegex deny or ask rule builds the view, as before', async t => {
   const policy = join(fixture(t), 'policy.json');
   const guard = createCommandGuard({policyPath: policy});
 
-  writePolicy(policy, ['BashCmdRegex(^pnpm -r publish)']);
+  writePolicy(policy, ['BashCmdRegex(^viewpm -r publish)']);
   assert.equal(await builtBy(guard, ['ls']), 1);
-  assert.equal(await run(guard, 'FOO=1 /usr/bin/pnpm -r publish'), 'DENY');
-  assert.equal(await run(guard, 'echo pnpm -r publish'), 'ALLOW');
+  assert.equal(await run(guard, 'FOO=1 /usr/bin/viewpm -r publish'), 'DENY');
+  assert.equal(await run(guard, 'echo viewpm -r publish'), 'ALLOW');
   assert.equal(await run(guard, `sudo ${'x '.repeat(1100)}`), 'ALLOW');
   assert.equal(
-    await run(guard, `sudo ${'x '.repeat(1100)}pnpm -r publish`),
+    await run(guard, `sudo ${'x '.repeat(1100)}viewpm -r publish`),
     'DENY',
   );
 
-  writePolicy(policy, [], ['BashCmdRegex(^pnpm -r publish)']);
+  writePolicy(policy, [], ['BashCmdRegex(^viewpm -r publish)']);
   assert.equal(await builtBy(guard, ['ls']), 1);
-  assert.equal(await run(guard, 'sudo pnpm -r publish'), 'ASK');
-  assert.equal(await run(guard, 'pnpm -r build'), 'ALLOW');
+  assert.equal(await run(guard, 'sudo viewpm -r publish'), 'ASK');
+  assert.equal(await run(guard, 'viewpm -r build'), 'ALLOW');
 });
 
 test('a policy reload starts and stops building the view', async t => {
@@ -115,7 +115,7 @@ test('a policy reload starts and stops building the view', async t => {
 
   writePolicy(policy, ['BashRegex(^x)']);
   assert.equal(await builtBy(guard, ['ls', 'echo hi']), 0);
-  writePolicy(policy, ['BashRegex(^x)', 'BashCmdRegex(^pnpm -r publish)']);
+  writePolicy(policy, ['BashRegex(^x)', 'BashCmdRegex(^viewpm -r publish)']);
   assert.equal(await builtBy(guard, ['ls']), 1);
   writePolicy(policy, ['BashRegex(^x)']);
   assert.equal(await builtBy(guard, ['ls']), 0);
@@ -123,9 +123,9 @@ test('a policy reload starts and stops building the view', async t => {
 
 test('the view is built once per command, and only when read', () => {
   const before = viewStats.built;
-  const analysis = analyzeCommand('sudo pnpm -r publish', repository);
+  const analysis = analyzeCommand('sudo viewpm -r publish', repository);
   assert.equal(viewStats.built, before);
-  assert.ok(analysis.invocations?.includes('pnpm -r publish'));
+  assert.ok(analysis.invocations?.includes('viewpm -r publish'));
   assert.ok(analysis.invocations);
   assert.equal(viewStats.built, before + 1);
   // A command with no view stays without one, and is not built again.

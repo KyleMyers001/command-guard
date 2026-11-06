@@ -34,7 +34,12 @@ test('CG-FP-001: a later command in the same script cannot supply push flags', a
 // here: it can only block a harmless line, never allow a real force push.
 test('a flag after a newline: analysis splits it, the raw push rule still denies', async () => {
   const split = analyzeCommand('git push origin feat/x\n--force', repository);
-  assert.deepEqual(split.lines, ['git push origin feat/x', '--force']);
+  assert.deepEqual(split.lines, [
+    'git push origin feat/x',
+    '--force',
+    '__chain_unsafe__',
+    '__carried__',
+  ]);
   assert.deepEqual(split.decisions, []);
   assert.equal(await verdict('git push origin feat/x\n--force'), 'DENY');
 });

@@ -62,7 +62,7 @@ async function decide(
 ) {
   const policyPath = join(fixture(t), 'policy.json');
   const rules = {deny: [] as string[], ask: [] as string[]};
-  rules[kind].push('BashCmdRegex(^pnpm -r publish)');
+  rules[kind].push('BashCmdRegex(^viewpm -r publish)');
   writeFileSync(policyPath, JSON.stringify({version: 1, permissions: rules}));
 
   let prompts = 0;
@@ -165,7 +165,7 @@ test('no view: a deny rule denies and an ask rule asks when the command holds th
   const padded = [
     words('sudo ', 'x', 5000),
     `echo ${'a'.repeat(9000)}`,
-    `find . ${'-exec a \\; '.repeat(400)}-exec pnpm -r build \\;`,
+    `find . ${'-exec a \\; '.repeat(400)}-exec viewpm -r build \\;`,
     'find . -exec sh -c "$X" \';\'',
     repeat('', 40, 'a'.repeat(1)).replace(
       'find . ',
@@ -186,7 +186,7 @@ test('no view: a deny rule denies and an ask rule asks when the command holds th
       command.slice(0, 40),
     );
 
-    const publishing = `${command}; pnpm -r publish`;
+    const publishing = `${command}; viewpm -r publish`;
     assert.equal(
       await decide(t, 'deny', publishing),
       'DENY',
@@ -200,9 +200,9 @@ test('no view: a deny rule denies and an ask rule asks when the command holds th
   }
   // With a view the rule is as exact as before.
   for (const kind of ['deny', 'ask'] as const) {
-    assert.equal(await decide(t, kind, 'pnpm -r build'), 'ALLOW');
-    assert.equal(await decide(t, kind, 'echo pnpm -r publish'), 'ALLOW');
-    assert.notEqual(await decide(t, kind, 'pnpm -r publish'), 'ALLOW');
+    assert.equal(await decide(t, kind, 'viewpm -r build'), 'ALLOW');
+    assert.equal(await decide(t, kind, 'echo viewpm -r publish'), 'ALLOW');
+    assert.notEqual(await decide(t, kind, 'viewpm -r publish'), 'ALLOW');
   }
 });
 
@@ -210,12 +210,12 @@ test('an overlapping chain of -exec and + is read within the work limits', async
   // Whatever the chain does (a view, or none), a deny and an ask rule on the
   // publish that follows it both hold.
   for (const command of [
-    `${chain(2, 300)}\\; -exec pnpm -r publish \\;`,
-    `${chain(3, 200)}\\; -exec pnpm -r publish \\;`,
-    `${chain(4, 100)}\\; -exec pnpm -r publish \\;`,
-    `${chain(18, 50)}\\; -exec pnpm -r publish \\;`,
-    `${'find . -exec '.repeat(18)}echo ${'+ '.repeat(12)}; pnpm -r publish`,
-    `${chain(3, 100, 'sudo ')}\\; -exec pnpm -r publish \\;`,
+    `${chain(2, 300)}\\; -exec viewpm -r publish \\;`,
+    `${chain(3, 200)}\\; -exec viewpm -r publish \\;`,
+    `${chain(4, 100)}\\; -exec viewpm -r publish \\;`,
+    `${chain(18, 50)}\\; -exec viewpm -r publish \\;`,
+    `${'find . -exec '.repeat(18)}echo ${'+ '.repeat(12)}; viewpm -r publish`,
+    `${chain(3, 100, 'sudo ')}\\; -exec viewpm -r publish \\;`,
   ]) {
     for (const kind of ['deny', 'ask'] as const) {
       assert.notEqual(await decide(t, kind, command), 'ALLOW', command);
@@ -249,107 +249,110 @@ test('a command that needs more work than the limits has no view and fails close
 
 test('padding a command with find -exec payloads does not hide a publish', async t => {
   for (const count of [100, 256, 257, 258, 300, 400, 1000]) {
-    const command = `FOO=1 pnpm -r publish; find . ${'-exec a \\; '.repeat(count)}`;
+    const command = `FOO=1 viewpm -r publish; find . ${'-exec a \\; '.repeat(count)}`;
     assert.equal(await decide(t, 'deny', command), 'DENY', `${count}`);
   }
-  const cmd = matcher(t, 'BashCmdRegex(^pnpm -r publish)');
+  const cmd = matcher(t, 'BashCmdRegex(^viewpm -r publish)');
   const padding = '-exec a \\; '.repeat(257);
-  assert.equal(cmd(`find . ${padding}-exec pnpm -r publish \\;`), true);
-  assert.equal(cmd(`find . ${padding}-exec pnpm -r build \\;`), false);
+  assert.equal(cmd(`find . ${padding}-exec viewpm -r publish \\;`), true);
+  assert.equal(cmd(`find . ${padding}-exec viewpm -r build \\;`), false);
 });
 
 test('a find payload is read once, so a mention inside one is no command', t => {
-  const cmd = matcher(t, 'BashCmdRegex(^pnpm -r publish)');
+  const cmd = matcher(t, 'BashCmdRegex(^viewpm -r publish)');
   for (const command of [
-    'find . -exec echo -exec pnpm -r publish \\;',
-    'find . -exec echo -execdir pnpm -r publish \\;',
-    'find . -name -exec pnpm -r build \\;',
+    'find . -exec echo -exec viewpm -r publish \\;',
+    'find . -exec echo -execdir viewpm -r publish \\;',
+    'find . -name -exec viewpm -r build \\;',
   ]) {
     assert.equal(cmd(command), false, command);
   }
   for (const command of [
-    'find . -exec find . -exec find . -exec pnpm -r publish \\; \\; \\;',
-    'find . -exec echo \\; -exec pnpm -r publish \\;',
-    'sudo find . -exec echo \\; -exec pnpm -r publish \\;',
-    'sudo find . -name x find . -exec pnpm -r publish \\;',
-    'find . -exec sudo find . -exec pnpm -r publish \\; \\;',
+    'find . -exec find . -exec find . -exec viewpm -r publish \\; \\; \\;',
+    'find . -exec echo \\; -exec viewpm -r publish \\;',
+    'sudo find . -exec echo \\; -exec viewpm -r publish \\;',
+    'sudo find . -name x find . -exec viewpm -r publish \\;',
+    'find . -exec sudo find . -exec viewpm -r publish \\; \\;',
   ]) {
     assert.equal(cmd(command), true, command);
   }
 });
 
 test('an -exec that is a predicate operand does not hide the real one', t => {
-  const cmd = matcher(t, 'BashCmdRegex(^pnpm -r publish)');
+  const cmd = matcher(t, 'BashCmdRegex(^viewpm -r publish)');
   for (const command of [
-    'find . -name -exec -o -exec pnpm -r publish \\;',
-    'find . -path -exec -o -exec pnpm -r publish \\;',
-    'find . -newer -exec -o -exec pnpm -r publish \\;',
-    'find . -newermt -exec -exec pnpm -r publish \\;',
-    'find . -name -exec -exec pnpm -r publish \\;',
-    'find . -iname -execdir -ok pnpm -r publish \\;',
-    'find . -fprintf f -exec -exec pnpm -r publish \\;',
-    'sudo find . -name -exec -o -exec pnpm -r publish \\;',
+    'find . -name -exec -o -exec viewpm -r publish \\;',
+    'find . -path -exec -o -exec viewpm -r publish \\;',
+    'find . -newer -exec -o -exec viewpm -r publish \\;',
+    'find . -newermt -exec -exec viewpm -r publish \\;',
+    'find . -name -exec -exec viewpm -r publish \\;',
+    'find . -iname -execdir -ok viewpm -r publish \\;',
+    'find . -fprintf f -exec -exec viewpm -r publish \\;',
+    'sudo find . -name -exec -o -exec viewpm -r publish \\;',
     // An operand the guard does not know is still found, inside the payload.
-    'find . -somepredicate -exec -o -exec pnpm -r publish \\;',
-    'find . -exec -o -exec -o -exec pnpm -r publish \\;',
+    'find . -somepredicate -exec -o -exec viewpm -r publish \\;',
+    'find . -exec -o -exec -o -exec viewpm -r publish \\;',
   ]) {
     assert.equal(cmd(command), true, command);
   }
-  assert.equal(cmd('find . -name -exec -o -exec pnpm -r build \\;'), false);
+  assert.equal(cmd('find . -name -exec -o -exec viewpm -r build \\;'), false);
 });
 
 test('-fprintf and -D take operands, so the -exec after them is the real one', t => {
-  const cmd = matcher(t, 'BashCmdRegex(^pnpm -r publish)');
+  const cmd = matcher(t, 'BashCmdRegex(^viewpm -r publish)');
   for (const command of [
     // -fprintf takes a file and a format: the first -exec is only a file.
-    'find . -fprintf -exec fmt -exec pnpm -r publish \\;',
-    'find . -fprint -exec -exec pnpm -r publish \\;',
-    'find . -printf -exec -exec pnpm -r publish \\;',
+    'find . -fprintf -exec fmt -exec viewpm -r publish \\;',
+    'find . -fprint -exec -exec viewpm -r publish \\;',
+    'find . -printf -exec -exec viewpm -r publish \\;',
     // -D takes the debug options.
-    'find -D -exec . -exec pnpm -r publish \\;',
-    'find -D tree . -exec pnpm -r publish \\;',
-    'sudo find -D -exec . -exec pnpm -r publish \\;',
+    'find -D -exec . -exec viewpm -r publish \\;',
+    'find -D tree . -exec viewpm -r publish \\;',
+    'sudo find -D -exec . -exec viewpm -r publish \\;',
     // -O has its level attached; it takes no operand.
-    'find -O3 . -exec pnpm -r publish \\;',
+    'find -O3 . -exec viewpm -r publish \\;',
   ]) {
     assert.equal(cmd(command), true, command);
   }
-  assert.equal(cmd('find . -fprintf -exec fmt -exec pnpm -r build \\;'), false);
-  assert.equal(cmd('find -D -exec . -exec pnpm -r build \\;'), false);
+  assert.equal(
+    cmd('find . -fprintf -exec fmt -exec viewpm -r build \\;'),
+    false,
+  );
+  assert.equal(cmd('find -D -exec . -exec viewpm -r build \\;'), false);
 });
 
 test('`+` ends a payload only after {}', t => {
-  const cmd = matcher(t, 'BashCmdRegex(^pnpm -r publish)');
+  const cmd = matcher(t, 'BashCmdRegex(^viewpm -r publish)');
   for (const command of [
-    'find . -exec echo {} + -exec pnpm -r publish \\;',
-    'find . -exec echo {} \\+ -exec pnpm -r publish \\;',
+    'find . -exec echo {} + -exec viewpm -r publish \\;',
+    'find . -exec echo {} \\+ -exec viewpm -r publish \\;',
     // `+` here is an argument, so the payload runs on to `;` and is open.
-    'find . -exec sudo + pnpm -r publish \\;',
+    'find . -exec sudo + viewpm -r publish \\;',
   ]) {
     assert.equal(cmd(command), true, command);
   }
-  assert.equal(cmd('find . -exec echo + pnpm -r publish \\;'), false);
+  assert.equal(cmd('find . -exec echo + viewpm -r publish \\;'), false);
 });
 
 test('a literal script run by find -exec is read', t => {
   const {invocations} = analyzeCommand(
-    "find . -exec sh -c 'npm publish' \\;",
+    "find . -exec sh -c 'viewnpm publish' \\;",
     cwd,
   );
-  assert.ok(invocations?.includes('npm publish'));
+  assert.ok(invocations?.includes('viewnpm publish'));
 
-  const cmd = matcher(t, 'BashCmdRegex(^pnpm -r publish)');
+  const cmd = matcher(t, 'BashCmdRegex(^viewpm -r publish)');
   for (const command of [
-    "find . -exec sh -c 'pnpm -r publish' \\;",
-    "find . -exec bash -lc 'cd x && pnpm -r publish' _ {} \\;",
-    "find . -execdir eval 'pnpm -r publish' \\;",
-    "find . -exec sh -c 'find . -exec pnpm -r publish \\\\;' \\;",
-    'sh -c \'find . -exec sh -c "pnpm -r publish" \\;\'',
-    "env A=1 find . -exec sh -c 'FOO=1 /bin/pnpm -r publish' \\;",
+    "find . -exec sh -c 'viewpm -r publish' \\;",
+    "find . -exec bash -lc 'cd x && viewpm -r publish' _ {} \\;",
+    "find . -execdir eval 'viewpm -r publish' \\;",
+    "find . -exec sh -c 'find . -exec viewpm -r publish \\\\;' \\;",
+    'sh -c \'find . -exec sh -c "viewpm -r publish" \\;\'',
+    "env A=1 find . -exec sh -c 'FOO=1 /bin/viewpm -r publish' \\;",
   ]) {
     assert.equal(cmd(command), true, command);
   }
-  assert.equal(cmd("find . -exec sh -c 'pnpm -r build' \\;"), false);
+  assert.equal(cmd("find . -exec sh -c 'viewpm -r build' \\;"), false);
 
   // A script it cannot read means no view, and no new decision.
   const unread = analyzeCommand('find . -exec sh -c "$X" \\;', cwd);

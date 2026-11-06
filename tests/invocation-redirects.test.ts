@@ -9,7 +9,7 @@ import {decide} from './helpers/decide.ts';
 
 const cwd = process.cwd();
 const views = (command: string) => analyzeCommand(command, cwd).invocations;
-const PUBLISH = 'pnpm -r publish';
+const PUBLISH = 'viewpm -r publish';
 const RULE = `BashCmdRegex(^${PUBLISH})`;
 
 const redirects = [
@@ -42,9 +42,9 @@ test('redirections before the command are not part of it', async t => {
 
 test('a named descriptor among the arguments is not one', () => {
   for (const command of [
-    'pnpm {fd}>f -r publish',
-    'pnpm -r {fd}<f publish',
-    'pnpm -r publish {fd}>f',
+    'viewpm {fd}>f -r publish',
+    'viewpm -r {fd}<f publish',
+    'viewpm -r publish {fd}>f',
     `FOO=1 {fd}>f ${PUBLISH}`,
     `if true; then {fd}>f ${PUBLISH}; fi`,
     `time {fd}>f ${PUBLISH}`,
@@ -63,10 +63,10 @@ test('a script run after a redirection is read', async t => {
 
 test('a redirection does not make another command a publish', async t => {
   for (const command of [
-    '{fd}>f echo pnpm -r publish',
-    '>f pnpm -r build',
-    '{fd}>pnpm -r publish',
-    'echo {fd}>f; pnpm -r build',
+    '{fd}>f echo viewpm -r publish',
+    '>f viewpm -r build',
+    '{fd}>viewpm -r publish',
+    'echo {fd}>f; viewpm -r build',
   ]) {
     assert.equal(await decide(t, {deny: [RULE]}, command), 'ALLOW', command);
   }

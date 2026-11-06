@@ -11,18 +11,18 @@ export interface Case {
 // Spellings of each target. `'` and `"` are marked so a spelling is only put
 // inside a string whose own quote it does not hold.
 const spellings: Record<string, string[]> = {
-  'pnpm -r publish': [
-    "pn''pm -r pub''lish",
-    'pn""pm -r pub""lish',
-    'p\\npm -r pub\\lish',
-    "'pnpm' -r 'publish'",
-    '"pnpm" -r "publish"',
-    "pnpm -r p'u'b'l'i'sh'",
-    'pn\'\'pm -r "pub"lish',
-    '\\p\\n\\p\\m -r \\p\\u\\b\\l\\i\\s\\h',
-    'pnpm -r pub\\\nlish',
-    "pnpm -r pub''''''lish",
-    'pnpm -r \'pu\'b"li"sh',
+  'viewpm -r publish': [
+    "vi''ewpm -r pub''lish",
+    'vi""ewpm -r pub""lish',
+    'v\\iewpm -r pub\\lish',
+    "'viewpm' -r 'publish'",
+    '"viewpm" -r "publish"',
+    "viewpm -r p'u'b'l'i'sh'",
+    'vi\'\'ewpm -r "pub"lish',
+    '\\v\\i\\e\\w\\p\\m -r \\p\\u\\b\\l\\i\\s\\h',
+    'viewpm -r pub\\\nlish',
+    "viewpm -r pub''''''lish",
+    'viewpm -r \'pu\'b"li"sh',
   ],
   'git push --force': [
     "git pu''sh --force",
@@ -74,12 +74,12 @@ const quoted = (inner: string, q: string) => [
 
 // The forms with a word computed at run time, as nothing but a run reads them.
 const computed = [
-  'sudo bash -c "pnpm -r $ACT"',
+  'sudo bash -c "viewpm -r $ACT"',
   'bash -c "p$X -r publish"',
-  'eval "pnpm -r pub${E}lish"',
-  "pnpm -r $'pub\\x6cish'",
-  'sudo sh -c "pnpm -r pub`echo`lish"',
-  'echo "pnpm -r $(echo publish)" | sh',
+  'eval "viewpm -r pub${E}lish"',
+  "viewpm -r $'pub\\x6cish'",
+  'sudo sh -c "viewpm -r pub`echo`lish"',
+  'echo "viewpm -r $(echo publish)" | sh',
 ];
 
 export function obfuscationCases(): Case[] {

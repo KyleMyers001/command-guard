@@ -9,7 +9,7 @@ import {decide} from './helpers/decide.ts';
 
 const cwd = process.cwd();
 const views = (command: string) => analyzeCommand(command, cwd).invocations;
-const PUBLISH = 'pnpm -r publish';
+const PUBLISH = 'viewpm -r publish';
 const RULE = `BashCmdRegex(^${PUBLISH})`;
 
 const before = [
@@ -64,8 +64,8 @@ test('a function body after a prefix is read', () => {
 
 test('what follows the prefix decides, not the prefix', async t => {
   for (const command of [
-    'time ! pnpm -r build',
-    'time -p ! echo pnpm -r publish',
+    'time ! viewpm -r build',
+    'time -p ! echo viewpm -r publish',
     'FOO=1 time ! git status',
     'env time ! bash -c "echo ok"',
   ]) {

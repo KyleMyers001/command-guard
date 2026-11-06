@@ -17,7 +17,7 @@ import {obfuscationCases, padding} from './helpers/obfuscation.ts';
 // and line continuations gone, also inside a script that is only a string.
 
 const cwd = process.cwd();
-const RULE = 'BashCmdRegex(^pnpm -r publish)';
+const RULE = 'BashCmdRegex(^viewpm -r publish)';
 const kinds = [
   ['deny', 'DENY'],
   ['ask', 'ASK'],
@@ -107,23 +107,23 @@ test('padded, every obfuscated form is blocked as an unpadded one with a view is
 
 test('over the cap, split words inside a script string are found', async t => {
   const forms = {
-    sudo: "sudo bash -c \"pn''pm -r pub''lish\"",
-    backslash: "sudo bash -c 'p\\npm -r pub\\lish'",
-    ifThen: "if true; then pn''pm -r pub''lish; fi",
-    brace: '{ pn\'\'pm -r pub""lish; }',
-    bang: '! pn\\pm -r pub\\lish',
-    fn: "f() { pn''pm -r pub''lish; }; f",
-    keywordFn: "function f { pn''pm -r pub''lish; }; f",
-    while: "while pn''pm -r pub''lish; do :; done",
-    nohup: "nohup sh -c \"pn''pm -r pub''lish\"",
-    timeout: 'timeout 5 sh -c \'pnpm -r pub"lish"\'',
-    find: "find . -exec sh -c \"pn''pm -r pub''lish\" \\;",
-    xargs: 'echo x | xargs bash -c \'pn""pm -r pub""lish\'',
-    herestring: "bash <<<\"pn''pm -r pub''lish\"",
-    pipe: 'echo \'pn""pm -r pub""lish\' | sh',
-    continued: "sh -c 'pnpm -r pub\\\nlish'",
-    nested: 'sudo sh -c \'sudo bash -c "pn\\pm -r pub\\lish"\'',
-    codex: `sudo bash -c 'pnpm -r pub"lish"'; echo ${'x'.repeat(9000)}`,
+    sudo: "sudo bash -c \"vi''ewpm -r pub''lish\"",
+    backslash: "sudo bash -c 'v\\iewpm -r pub\\lish'",
+    ifThen: "if true; then vi''ewpm -r pub''lish; fi",
+    brace: '{ vi\'\'ewpm -r pub""lish; }',
+    bang: '! vi\\ewpm -r pub\\lish',
+    fn: "f() { vi''ewpm -r pub''lish; }; f",
+    keywordFn: "function f { vi''ewpm -r pub''lish; }; f",
+    while: "while vi''ewpm -r pub''lish; do :; done",
+    nohup: "nohup sh -c \"vi''ewpm -r pub''lish\"",
+    timeout: 'timeout 5 sh -c \'viewpm -r pub"lish"\'',
+    find: "find . -exec sh -c \"vi''ewpm -r pub''lish\" \\;",
+    xargs: 'echo x | xargs bash -c \'vi""ewpm -r pub""lish\'',
+    herestring: "bash <<<\"vi''ewpm -r pub''lish\"",
+    pipe: 'echo \'vi""ewpm -r pub""lish\' | sh',
+    continued: "sh -c 'viewpm -r pub\\\nlish'",
+    nested: 'sudo sh -c \'sudo bash -c "vi\\ewpm -r pub\\lish"\'',
+    codex: `sudo bash -c 'viewpm -r pub"lish"'; echo ${'x'.repeat(9000)}`,
   };
   for (const [kind, expected] of kinds) {
     for (const [name, form] of Object.entries(forms)) {
@@ -155,9 +155,9 @@ test('over the cap, a split git push inside a script is found', async t => {
 
 test('over the cap, split words that are not the rule’s are not blocked', async t => {
   for (const form of [
-    "sudo bash -c \"pn''pm -r bu''ild\"",
-    'sh -c \'pnpm -r pub"lic"\'',
-    'echo \'pn""pm\' publish',
+    "sudo bash -c \"vi''ewpm -r bu''ild\"",
+    'sh -c \'viewpm -r pub"lic"\'',
+    'echo \'vi""ewpm\' publish',
   ]) {
     const command = `${form}\necho ${pad}`;
     assert.equal(await decide(t, {deny: [RULE]}, command), 'ALLOW', form);

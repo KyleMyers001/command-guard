@@ -17,13 +17,15 @@ import {expectAll} from './helpers/verdict.ts';
 
 // EL-115 / PR 3: the invocation view and the BashCmdRegex selector. This is
 // a mechanism only; no shipped rule uses it yet. Commands are only parsed.
+// viewpm/viewnpm stand in for package managers so the always-on publish
+// classifier cannot mask either an invocation-rule miss or an ASK result.
 
 const views = (command: string) => invocations(parseSegments(command));
 
 test('the view names each simple command as it would be started', () => {
-  assert.deepEqual(views('pnpm -r publish'), ['pnpm -r publish']);
-  assert.deepEqual(views('FOO=1 /usr/bin/pnpm -r publish'), [
-    'pnpm -r publish',
+  assert.deepEqual(views('viewpm -r publish'), ['viewpm -r publish']);
+  assert.deepEqual(views('FOO=1 /usr/bin/viewpm -r publish'), [
+    'viewpm -r publish',
   ]);
   assert.deepEqual(views('env -i A=b time -p ./bin/lerna publish'), [
     'lerna publish',
@@ -37,13 +39,17 @@ test('the view names each simple command as it would be started', () => {
 });
 
 test('a prefix or an unknown wrapper option also exposes the later command', () => {
-  assert.ok(views('sudo -u root pnpm -r publish').includes('pnpm -r publish'));
-  assert.ok(views('timeout 60 npm publish').includes('npm publish'));
-  assert.ok(views('nohup pnpm -r publish').includes('pnpm -r publish'));
-  assert.ok(views('env -C dir pnpm -r publish').includes('pnpm -r publish'));
-  assert.ok(views('env $OPTS pnpm -r publish').includes('pnpm -r publish'));
+  assert.ok(
+    views('sudo -u root viewpm -r publish').includes('viewpm -r publish'),
+  );
+  assert.ok(views('timeout 60 viewnpm publish').includes('viewnpm publish'));
+  assert.ok(views('nohup viewpm -r publish').includes('viewpm -r publish'));
+  assert.ok(
+    views('env -C dir viewpm -r publish').includes('viewpm -r publish'),
+  );
+  assert.ok(views('env $OPTS viewpm -r publish').includes('viewpm -r publish'));
   // The command as written is always kept.
-  assert.ok(views('sudo -u root pnpm -r publish')[0].startsWith('sudo '));
+  assert.ok(views('sudo -u root viewpm -r publish')[0].startsWith('sudo '));
 });
 
 test('shell strings contribute their own commands, and Git globals are dropped', () => {
@@ -64,42 +70,45 @@ test('shell strings contribute their own commands, and Git globals are dropped',
 
 test('a long command still has every start', () => {
   const words = Array.from({length: 900}, () => 'x').join(' ');
-  const found = views(`sudo ${words} pnpm -r publish`);
+  const found = views(`sudo ${words} viewpm -r publish`);
   assert.ok(found[0].startsWith('sudo '));
-  assert.ok(found.includes('pnpm -r publish'));
+  assert.ok(found.includes('viewpm -r publish'));
   assert.ok(found.length >= 900);
 });
 
 test('BashCmdRegex compiles like BashRegex and is matched against views', t => {
   const root = fixture(t);
-  const compiled = rule(t, 'BashCmdRegex(^pnpm -r publish$)');
+  const compiled = rule(t, 'BashCmdRegex(^viewpm -r publish$)');
   assert.equal(compiled.view, 'invocation');
   assert.equal(compiled.tool, 'bash');
   assert.equal(compiled.regex?.flags, 'u');
 
-  const text = ['echo pnpm -r publish', 'echo pnpm -r publish'];
+  const text = ['echo viewpm -r publish', 'echo viewpm -r publish'];
   assert.equal(matches(compiled, 'bash', text, root, root, ['echo']), false);
   assert.equal(
-    matches(compiled, 'bash', text, root, root, ['pnpm -r publish']),
+    matches(compiled, 'bash', text, root, root, ['viewpm -r publish']),
     true,
   );
   // Without a view it matches a command that holds its trigger words.
   assert.deepEqual(
     compiled.triggers?.map(words => words.map(word => word.source)),
-    [['pnpm', '-r', 'publish']],
+    [['viewpm', '-r', 'publish']],
   );
   assert.equal(matches(compiled, 'bash', ['echo hi'], root, root), false);
   assert.equal(matches(compiled, 'bash', text, root, root), true);
   assert.equal(
-    matches(compiled, 'read', ['pnpm -r publish'], root, root, [
-      'pnpm -r publish',
+    matches(compiled, 'read', ['viewpm -r publish'], root, root, [
+      'viewpm -r publish',
     ]),
     false,
   );
 });
 
 test('BashCmdRegex takes the same modifiers and rejects bad expressions', t => {
-  assert.equal(rule(t, 'BashCmdRegex((?i:^npm publish))').regex?.flags, 'iu');
+  assert.equal(
+    rule(t, 'BashCmdRegex((?i:^viewnpm publish))').regex?.flags,
+    'iu',
+  );
   for (const selector of [
     'BashCmdRegex',
     'BashCmdRegex()',
@@ -117,7 +126,7 @@ test('through the guard: the rule blocks the command, not prose about it', async
     policyPath,
     JSON.stringify({
       version: 1,
-      permissions: {deny: ['BashCmdRegex(^pnpm -r publish)'], ask: []},
+      permissions: {deny: ['BashCmdRegex(^viewpm -r publish)'], ask: []},
     }),
   );
   const guard = createCommandGuard({policyPath});
@@ -140,19 +149,19 @@ test('through the guard: the rule blocks the command, not prose about it', async
   };
 
   for (const command of [
-    'pnpm -r publish',
-    'FOO=1 /usr/bin/pnpm -r publish --tag x',
-    'echo ok && pnpm -r publish',
-    'sudo pnpm -r publish',
-    "bash -c 'pnpm -r publish'",
+    'viewpm -r publish',
+    'FOO=1 /usr/bin/viewpm -r publish --tag x',
+    'echo ok && viewpm -r publish',
+    'sudo viewpm -r publish',
+    "bash -c 'viewpm -r publish'",
   ]) {
     assert.equal(await blocked(command), true, command);
   }
   for (const command of [
-    'pnpm -r build',
-    'echo pnpm -r publish',
-    'git commit -m "pnpm -r publish"',
-    'rg "pnpm -r publish" docs',
+    'viewpm -r build',
+    'echo viewpm -r publish',
+    'git commit -m "viewpm -r publish"',
+    'rg "viewpm -r publish" docs',
   ]) {
     assert.equal(await blocked(command), false, command);
   }

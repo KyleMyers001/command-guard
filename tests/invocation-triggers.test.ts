@@ -21,16 +21,16 @@ const kinds = [
 ] as const;
 
 test('a trigger is found as the rule’s regex finds it, with or without a view', async t => {
-  const insensitive = 'BashCmdRegex((?i:^pnpm -r .*publish))';
-  const sensitive = 'BashCmdRegex(^pnpm -r publish)';
+  const insensitive = 'BashCmdRegex((?i:^viewpm -r .*publish))';
+  const sensitive = 'BashCmdRegex(^viewpm -r publish)';
   // Under `iu`, `ſ` (long s) is an `s`.
   const cases = [
-    [insensitive, 'sudo pnpm -r publiſh', true],
-    [insensitive, 'sudo PNPM -R PUBLISH', true],
-    [insensitive, 'sudo pnpm -r build', false],
-    [sensitive, 'sudo pnpm -r publish', true],
-    [sensitive, 'sudo PNPM -r PUBLISH', false],
-    [sensitive, 'sudo pnpm -r publiſh', false],
+    [insensitive, 'sudo viewpm -r publiſh', true],
+    [insensitive, 'sudo VIEWPM -R PUBLISH', true],
+    [insensitive, 'sudo viewpm -r build', false],
+    [sensitive, 'sudo viewpm -r publish', true],
+    [sensitive, 'sudo VIEWPM -r PUBLISH', false],
+    [sensitive, 'sudo viewpm -r publiſh', false],
   ] as const;
   for (const [selector, command, blocked] of cases) {
     const padded = `${command}\necho ${pad}`;
@@ -46,8 +46,8 @@ test('a trigger is found as the rule’s regex finds it, with or without a view'
 });
 
 test('matchers fold case as the expression does', () => {
-  const sensitive = triggerMatchers('^pnpm -r publish') ?? [];
-  const insensitive = triggerMatchers('(?i:^pnpm -r publish)') ?? [];
+  const sensitive = triggerMatchers('^viewpm -r publish') ?? [];
+  const insensitive = triggerMatchers('(?i:^viewpm -r publish)') ?? [];
   assert.deepEqual(
     sensitive[0].map(word => word.flags),
     ['u', 'u', 'u'],
@@ -60,7 +60,7 @@ test('matchers fold case as the expression does', () => {
   assert.ok(insensitive[0][2].test('publiſh'));
   assert.ok(!sensitive[0][2].test('publiſh'));
   // A group that is only grouping is not a modifier.
-  const grouped = triggerMatchers('^(?:npm|pnpm) publish') ?? [];
+  const grouped = triggerMatchers('^(?:viewnpm|viewpm) publish') ?? [];
   assert.equal(grouped[0][0].flags, 'u');
   // Words with regex syntax in them are matched as text.
   assert.ok(triggerMatchers('^a\\.b\\+c d')?.[0][0].test('xa.b+c'));
@@ -69,13 +69,13 @@ test('matchers fold case as the expression does', () => {
 
 test('a rule is evaluated once for no view, whatever its size', () => {
   const alternatives = (n: number, prefix = '') =>
-    Array.from({length: n}, (_, i) => `${prefix}pnpm -r p${i}`).join('|');
+    Array.from({length: n}, (_, i) => `${prefix}viewpm -r p${i}`).join('|');
   for (const [count, limit] of [
     [50_000, 1500],
     [200_000, 3000],
   ]) {
     const top = `^${alternatives(count, '^')}`.replace('^^', '^');
-    const grouped = `^pnpm (?:${alternatives(count).replaceAll('pnpm -r ', 'w')}) publish`;
+    const grouped = `^viewpm (?:${alternatives(count).replaceAll('viewpm -r ', 'w')}) publish`;
     for (const source of [top, grouped]) {
       const start = performance.now();
       const triggers = regexTriggers(source);
@@ -85,7 +85,7 @@ test('a rule is evaluated once for no view, whatever its size', () => {
       // left out and the rest of the expression still names its words.
       assert.deepEqual(
         triggers,
-        source === top ? undefined : [['pnpm', 'publish']],
+        source === top ? undefined : [['viewpm', 'publish']],
       );
     }
   }
@@ -113,7 +113,7 @@ test('a long sequence keeps its first 32 words and takes under a second', () => 
 });
 
 test('a rule with too many alternatives matches any command with no view', t => {
-  const source = `^${Array.from({length: 50_000}, (_, i) => `pnpm -r p${i}`).join('|^')}`;
+  const source = `^${Array.from({length: 50_000}, (_, i) => `viewpm -r p${i}`).join('|^')}`;
   const start = performance.now();
   const compiled = rule(t, `BashCmdRegex(${source})`);
   assert.ok(performance.now() - start < 3000);
@@ -126,8 +126,11 @@ test('a rule with too many alternatives matches any command with no view', t => 
 });
 
 test('a deep or malformed expression fails closed', () => {
-  assert.equal(regexTriggers(`${'('.repeat(200_000)}pnpm publish`), undefined);
-  assert.equal(regexTriggers('^(pnpm publish'), undefined);
+  assert.equal(
+    regexTriggers(`${'('.repeat(200_000)}viewpm publish`),
+    undefined,
+  );
+  assert.equal(regexTriggers('^(viewpm publish'), undefined);
 });
 
 test('the limits on alternatives and on their product', () => {
@@ -136,8 +139,8 @@ test('the limits on alternatives and on their product', () => {
   // At the limit of 32 the alternatives are kept; past it, none are.
   assert.equal(regexTriggers(`^(?:${words(32)})`)?.length, 32);
   assert.equal(regexTriggers(`^(?:${words(33)})`), undefined);
-  assert.deepEqual(regexTriggers(`^pnpm (?:${words(33)}) publish`), [
-    ['pnpm', 'publish'],
+  assert.deepEqual(regexTriggers(`^viewpm (?:${words(33)}) publish`), [
+    ['viewpm', 'publish'],
   ]);
   assert.equal(
     regexTriggers(`^${words(16)}`.replaceAll('|', '|^'))?.length,
@@ -152,10 +155,10 @@ test('the limits on alternatives and on their product', () => {
 });
 
 test('a word boundary is not text and does not split a word', () => {
-  assert.deepEqual(regexTriggers('^\\bnpm\\b publish\\b'), [
-    ['npm', 'publish'],
+  assert.deepEqual(regexTriggers('^\\bviewnpm\\b publish\\b'), [
+    ['viewnpm', 'publish'],
   ]);
-  assert.deepEqual(regexTriggers('^pn\\bpm -r pub\\Blish'), [
-    ['pnpm', '-r', 'publish'],
+  assert.deepEqual(regexTriggers('^vi\\bewpm -r pub\\Blish'), [
+    ['viewpm', '-r', 'publish'],
   ]);
 });

@@ -9,7 +9,7 @@ import {decide} from './helpers/decide.ts';
 
 const cwd = process.cwd();
 const views = (command: string) => analyzeCommand(command, cwd).invocations;
-const PUBLISH = 'pnpm -r publish';
+const PUBLISH = 'viewpm -r publish';
 const RULE = `BashCmdRegex(^${PUBLISH})`;
 
 // `script` hides the publish behind an `echo`, so no spelling of the script
@@ -47,10 +47,10 @@ test('the commands of such a script are blocked by a deny and an ask rule', asyn
 
 test('a script that does not publish is not blocked', async t => {
   for (const command of [
-    'if true; then bash -c "echo pnpm -r build"; fi',
-    'f() { bash -c "echo a; echo pnpm -r publish"; }; f',
+    'if true; then bash -c "echo viewpm -r build"; fi',
+    'f() { bash -c "echo a; echo viewpm -r publish"; }; f',
     '! eval "echo ok"',
-    'function f { echo pnpm -r publish; }',
+    'function f { echo viewpm -r publish; }',
   ]) {
     assert.equal(await decide(t, {deny: [RULE]}, command), 'ALLOW', command);
   }

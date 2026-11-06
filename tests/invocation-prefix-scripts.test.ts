@@ -10,7 +10,7 @@ import {decide} from './helpers/decide.ts';
 
 const cwd = process.cwd();
 const views = (command: string) => analyzeCommand(command, cwd).invocations;
-const PUBLISH = 'pnpm -r publish';
+const PUBLISH = 'viewpm -r publish';
 const RULE = `BashCmdRegex(^${PUBLISH})`;
 const script = `'echo ok; ${PUBLISH}'`;
 
@@ -53,7 +53,7 @@ test('a script run after a prefix or in a payload is read', async t => {
 test('a script that does not publish is not blocked', async t => {
   for (const command of [
     `command bash -c 'echo ${PUBLISH}'`,
-    "sudo bash -c 'echo ok; pnpm -r build'",
+    "sudo bash -c 'echo ok; viewpm -r build'",
     "xargs -I{} bash -c 'echo {}; ls'",
     'timeout 5 bash -c "echo ok"',
     'sudo apt install bash',

@@ -16,7 +16,7 @@ import {decide} from './helpers/decide.ts';
 // `BashRegex` rule reads it. With no trigger words to derive it matches all.
 
 const cwd = process.cwd();
-const RULE = 'BashCmdRegex(^pnpm -r publish)';
+const RULE = 'BashCmdRegex(^viewpm -r publish)';
 const kinds = [
   ['deny', 'DENY'],
   ['ask', 'ASK'],
@@ -27,7 +27,7 @@ const over = {
   echo: `echo ${'a'.repeat(9000)}`,
   sudo: `sudo echo ${'a'.repeat(9000)}`,
   words: `sudo ${'x '.repeat(1100)}`,
-  find: `find . ${'-exec a \\; '.repeat(400)}-exec pnpm -r build \\;`,
+  find: `find . ${'-exec a \\; '.repeat(400)}-exec viewpm -r build \\;`,
   script: 'find . -exec sh -c "$X" \';\'',
 };
 
@@ -47,14 +47,14 @@ test('over the cap, a command without the rule’s words is not blocked', async 
 
 test('over the cap, a command with the rule’s words is blocked', async t => {
   const padded = {
-    trailing: `${over.echo}; pnpm -r publish`,
-    leading: `pnpm -r publish; echo ${'a'.repeat(9000)}`,
-    sudo: `sudo pnpm -r publish ${'x '.repeat(1100)}`,
-    commit: `git commit -m '${'fix '.repeat(3000)}'; pnpm -r publish`,
-    spaced: `${over.echo}; pnpm   -r    publish`,
-    quoted: `${over.echo}; pnpm -r 'pub'"lish"`,
-    computed: 'find . -exec sh -c "$X; pnpm -r publish" \';\'',
-    find: `find . ${'-exec a \\; '.repeat(400)}-exec pnpm -r publish \\;`,
+    trailing: `${over.echo}; viewpm -r publish`,
+    leading: `viewpm -r publish; echo ${'a'.repeat(9000)}`,
+    sudo: `sudo viewpm -r publish ${'x '.repeat(1100)}`,
+    commit: `git commit -m '${'fix '.repeat(3000)}'; viewpm -r publish`,
+    spaced: `${over.echo}; viewpm   -r    publish`,
+    quoted: `${over.echo}; viewpm -r 'pub'"lish"`,
+    computed: 'find . -exec sh -c "$X; viewpm -r publish" \';\'',
+    find: `find . ${'-exec a \\; '.repeat(400)}-exec viewpm -r publish \\;`,
   };
   for (const [kind, expected] of kinds) {
     for (const [name, command] of Object.entries(padded)) {
@@ -66,13 +66,13 @@ test('over the cap, a command with the rule’s words is blocked', async t => {
 
 test('with a view the rule is as exact as before', async t => {
   for (const [kind, expected] of kinds) {
-    assert.equal(await decide(t, {[kind]: [RULE]}, 'pnpm -r build'), 'ALLOW');
+    assert.equal(await decide(t, {[kind]: [RULE]}, 'viewpm -r build'), 'ALLOW');
     assert.equal(
-      await decide(t, {[kind]: [RULE]}, 'echo pnpm -r publish'),
+      await decide(t, {[kind]: [RULE]}, 'echo viewpm -r publish'),
       'ALLOW',
     );
     assert.equal(
-      await decide(t, {[kind]: [RULE]}, 'FOO=1 pnpm -r publish'),
+      await decide(t, {[kind]: [RULE]}, 'FOO=1 viewpm -r publish'),
       expected,
     );
   }
@@ -82,7 +82,7 @@ test('a rule with no trigger words matches any command with no view', async t =>
   for (const selector of [
     'BashCmdRegex(^x)',
     'BashCmdRegex(^\\w+ \\d+)',
-    'BashCmdRegex(^(?:pnpm -r publish)?$)',
+    'BashCmdRegex(^(?:viewpm -r publish)?$)',
     'BashCmdRegex(.*)',
   ]) {
     for (const [kind, expected] of kinds) {
@@ -117,14 +117,14 @@ test('a view builder that throws blocks the command', async t => {
 
 test('trigger words are the literal words every match needs', () => {
   const words = (source: string) => regexTriggers(source);
-  assert.deepEqual(words('^pnpm -r publish'), [['pnpm', '-r', 'publish']]);
-  assert.deepEqual(words('^pnpm\\s+-r\\s+publish\\b'), [
-    ['pnpm', '-r', 'publish'],
+  assert.deepEqual(words('^viewpm -r publish'), [['viewpm', '-r', 'publish']]);
+  assert.deepEqual(words('^viewpm\\s+-r\\s+publish\\b'), [
+    ['viewpm', '-r', 'publish'],
   ]);
-  assert.deepEqual(words('(?i:^NPM publish)'), [['NPM', 'publish']]);
-  assert.deepEqual(words('^(?:npm|pnpm) publish'), [
-    ['npm', 'publish'],
-    ['pnpm', 'publish'],
+  assert.deepEqual(words('(?i:^VIEWNPM publish)'), [['VIEWNPM', 'publish']]);
+  assert.deepEqual(words('^(?:viewnpm|viewpm) publish'), [
+    ['viewnpm', 'publish'],
+    ['viewpm', 'publish'],
   ]);
   assert.deepEqual(words('^git push( --force)?'), [['git', 'push']]);
   assert.deepEqual(words('^git (?:-C \\S+ )?push\\b.*--force'), [
@@ -132,7 +132,9 @@ test('trigger words are the literal words every match needs', () => {
   ]);
   // Only what is required: an optional or repeated part names nothing.
   assert.deepEqual(words('^(?:sudo )?rm -rf /'), [['rm', '-rf']]);
-  assert.deepEqual(words('^pnpm -r publi(?:sh)?'), [['pnpm', '-r', 'publi']]);
+  assert.deepEqual(words('^viewpm -r publi(?:sh)?'), [
+    ['viewpm', '-r', 'publi'],
+  ]);
   assert.deepEqual(words('^git (?<x>push|pull)'), [
     ['git', 'push'],
     ['git', 'pull'],
@@ -140,17 +142,17 @@ test('trigger words are the literal words every match needs', () => {
   // Escapes and classes are not literal text.
   assert.equal(words('^\\x70\\u{70}\\p{Lu}'), undefined);
   assert.deepEqual(words('^[a-z]+ \\x41\\x42 push'), [['push']]);
-  assert.deepEqual(words('^(?:pnpm|\\w+) publish'), [['publish']]);
+  assert.deepEqual(words('^(?:viewpm|\\w+) publish'), [['publish']]);
   // None to derive: fail closed.
   for (const source of [
     '^x',
     '.*',
     '^\\w+ \\d+',
     '^(?:a|b)?',
-    '^(?=pnpm)',
-    '^pnpm|',
-    '^(pnpm',
-    '^pnpm)',
+    '^(?=viewpm)',
+    '^viewpm|',
+    '^(viewpm',
+    '^viewpm)',
   ]) {
     assert.equal(words(source), undefined, source);
   }
@@ -158,12 +160,14 @@ test('trigger words are the literal words every match needs', () => {
 
 test('trigger words are looked for anywhere in the text, in the rule’s case', () => {
   const triggers = (source: string) => triggerMatchers(source) ?? [];
-  const sensitive = triggers('^pnpm -r publish');
-  assert.ok(hasTriggers('x pnpm y -r z publish', sensitive));
-  assert.ok(!hasTriggers('x PNPM y -R z Publish', sensitive));
-  assert.ok(!hasTriggers('pnpm -r build', sensitive));
-  assert.ok(hasTriggers('npm publish', triggers('^(?:npm|pnpm) publish')));
+  const sensitive = triggers('^viewpm -r publish');
+  assert.ok(hasTriggers('x viewpm y -r z publish', sensitive));
+  assert.ok(!hasTriggers('x VIEWPM y -R z Publish', sensitive));
+  assert.ok(!hasTriggers('viewpm -r build', sensitive));
   assert.ok(
-    hasTriggers('x PNPM y -R z Publish', triggers('(?i:^pnpm -r publish)')),
+    hasTriggers('viewnpm publish', triggers('^(?:viewnpm|viewpm) publish')),
+  );
+  assert.ok(
+    hasTriggers('x VIEWPM y -R z Publish', triggers('(?i:^viewpm -r publish)')),
   );
 });
