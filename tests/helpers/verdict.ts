@@ -6,26 +6,33 @@ import type {
   ToolCallEvent,
 } from '@earendil-works/pi-coding-agent';
 import {createCommandGuard} from '../../extensions/command-guard.ts';
-import {
-  curlrcRiskyIn,
-  setCurlrcCheck,
-} from '../../extensions/command-guard/curlrc.ts';
+import {analyzeCommand} from '../../extensions/command-guard/commands.ts';
+import {curlrcRiskyIn} from '../../extensions/command-guard/curlrc.ts';
 
 // Never consult the developer's real curl configuration in fixture verdicts.
 const fixtureHome = resolve(tmpdir(), `cg-no-home-${process.pid}`);
-setCurlrcCheck(() => curlrcRiskyIn({HOME: fixtureHome}));
+const noCurlrc = () => curlrcRiskyIn({HOME: fixtureHome});
 
 export const repository = resolve(import.meta.dirname, '../..');
 export type Verdict = 'ALLOW' | 'ASK' | 'DENY';
-const guard = createCommandGuard({
-  policyPath: resolve(repository, 'command-guard.json'),
-  env: {},
-});
 
-// Shipped-policy verdict, with prompts declined and no command execution.
-export async function verdict(
+// Shipped-policy verdicts, with prompts declined and no command execution.
+export function verdictWith(curlrcRisky: () => boolean = noCurlrc) {
+  const guard = createCommandGuard({
+    policyPath: resolve(repository, 'command-guard.json'),
+    env: {},
+    curlrcRisky,
+  });
+  return async (command: string, cwd = repository) =>
+    judge(guard, command, cwd);
+}
+
+export const verdict = verdictWith();
+
+async function judge(
+  guard: ReturnType<typeof createCommandGuard>,
   command: string,
-  cwd = repository,
+  cwd: string,
 ): Promise<Verdict> {
   let prompts = 0;
   const result = await guard(
@@ -68,4 +75,13 @@ export async function expectVerdicts(
     if (actual !== expected) wrong.push(`${command} -> ${actual}`);
   }
   assert.deepEqual(wrong, [], `expected ${expected}`);
+}
+
+// Commands that may not use the exemptions: the policy reads them exactly as
+// written, so they keep main's verdict (or a stricter deny).
+export function expectNotExempt(commands: string[], cwd = repository): void {
+  const exempt = commands.filter(
+    command => analyzeCommand(command, cwd, {curlrcRisky: noCurlrc}).exempt,
+  );
+  assert.deepEqual(exempt, [], 'expected no exemption');
 }

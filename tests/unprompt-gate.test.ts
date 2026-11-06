@@ -8,7 +8,7 @@ import {
   curlrcRiskyIn,
 } from '../extensions/command-guard/curlrc.ts';
 import {fixture} from './helpers/fixtures.ts';
-import {expectVerdicts, verdict} from './helpers/verdict.ts';
+import {expectNotExempt, expectVerdicts} from './helpers/verdict.ts';
 
 // EL-115 PR6, CR on 33faf92: the gate is default-deny. Verdicts come from the
 // shipped policy; nothing is executed.
@@ -44,12 +44,9 @@ const HEADS = [
   'batch',
   'cron',
 ];
-const notAllowed = async (commands: string[], cwd: string) => {
-  const loose: string[] = [];
-  for (const command of commands)
-    if ((await verdict(command, cwd)) === 'ALLOW') loose.push(command);
-  assert.deepEqual(loose, []);
-};
+// The policy reads these as written, so each keeps main's verdict.
+const notAllowed = async (commands: string[], cwd: string) =>
+  expectNotExempt(commands, cwd);
 
 test('an unlisted head word in a chain is not allowed', async t => {
   const cwd = fixture(t);

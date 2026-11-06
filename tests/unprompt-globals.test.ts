@@ -1,27 +1,27 @@
 import test from 'node:test';
 import {fixture} from './helpers/fixtures.ts';
-import {expectVerdicts} from './helpers/verdict.ts';
+import {expectNotExempt, expectVerdicts} from './helpers/verdict.ts';
 
-// EL-115 PR6: the Git classes apply only when the sole options before the
-// subcommand are `-C <literal path>`. Any other option, in any quoting, or a
-// computed `-C` path keeps main's verdict.
+// The Git exemptions apply only when the sole options before the subcommand
+// are `-C` with a plain literal path. Any other option, a quoted or computed
+// `-C` path keeps main's verdict.
 const CLASSES = ['merge feat/x', 'config user.name'];
 
-test('-C with any literal path keeps the Git classes', async t => {
-  const prefixes = [
-    '',
-    '-C /',
-    '-C repo',
-    "-C '/a b'",
-    '-C "/a b"',
-    '-C / -C x',
-  ];
+test('-C with a plain literal path keeps the Git exemptions', async t => {
+  const prefixes = ['', '-C /', '-C repo', '-C / -C x'];
   await expectVerdicts(
     'ALLOW',
     [
       ...prefixes.flatMap(p => CLASSES.map(c => `git ${p} ${c}`)),
       'git -C / checkout --detach HEAD~1',
     ],
+    fixture(t),
+  );
+  // A quoted path is not plain, so the command is read as written.
+  expectNotExempt(
+    ["-C '/a b'", '-C "/a b"', "-C 'repo'"].flatMap(p =>
+      CLASSES.map(c => `git ${p} ${c}`),
+    ),
     fixture(t),
   );
 });

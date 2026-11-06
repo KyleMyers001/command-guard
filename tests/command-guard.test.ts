@@ -576,11 +576,7 @@ test('BashRegex rules match at token boundaries in deny and ask', async t => {
   );
   assert.equal(await h.call(bash('git fetch origin feat/x')), undefined);
   assert.equal(h.prompts.length, 0);
-  for (const command of [
-    'rm -fr build',
-    'rm -Rf build',
-    'rm --recursive build',
-  ]) {
+  for (const command of ['rm -fr src', 'rm -Rf src', 'rm --recursive src']) {
     assert.equal(await h.call(bash(command)), undefined);
   }
   assert.equal(h.prompts.length, 3);

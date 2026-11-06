@@ -1,16 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {analyzeCommand} from '../extensions/command-guard/commands.ts';
+import {parseCommand} from '../extensions/command-guard/shell.ts';
 import {fixture} from './helpers/fixtures.ts';
-import {expectVerdicts, verdict} from './helpers/verdict.ts';
+import {expectNotExempt, expectVerdicts} from './helpers/verdict.ts';
 
 const flagged = (command: string): boolean =>
-  analyzeCommand(command, '/').canonical.includes('__chain_unsafe__');
+  parseCommand(command).writesOutput;
 
-// EL-115 PR6: the new exemptions apply only to chains without an output
-// redirection, apart from descriptor duplication and /dev/null, /dev/stderr
-// or /dev/stdout. Any other output redirection keeps main's verdict.
-test('Codex P1 4464443083 and output redirections keep prompting', async t => {
+// The exemptions apply only to chains without any redirection, so every one
+// of these keeps main's verdict.
+test('output redirections keep prompting', async t => {
   await expectVerdicts(
     'ASK',
     [
@@ -36,9 +35,9 @@ test('Codex P1 4464443083 and output redirections keep prompting', async t => {
   );
 });
 
-// These already prompt through the raw-text rm/curl rules (as on c4503a2),
-// so the check is that they do not raise the redirect flag themselves.
-test('harmless redirections do not raise the redirect flag', () => {
+// The scanner tells a redirection that writes a file from one that only
+// duplicates or closes a descriptor or writes to a device stream.
+test('harmless redirections do not count as writing output', () => {
   for (const command of [
     'rm -rf dist 2>/dev/null',
     'rm -rf dist > /dev/null 2>&1',
@@ -56,6 +55,7 @@ test('harmless redirections do not raise the redirect flag', () => {
     'rm -rf dist >',
     'rm -rf dist; tee >(cat)',
     'rm -rf dist > "$F"',
+    'rm -rf dist; > x',
   ])
     assert.ok(flagged(command), command);
 });
@@ -73,16 +73,14 @@ const CLASSES = [
 const FORMS = ['>', '>>', '>|', '&>', '&>>', '1>', '2>', '2>>', '>&'];
 const TARGETS = ['x', 'command-guard.json', '"$F"', '~/.bashrc', 'a/b.txt'];
 
-test('generated class x redirect x target sweep keeps prompting', async t => {
-  const cwd = fixture(t);
-  const allowed: string[] = [];
+test('generated class x redirect x target sweep keeps main verdicts', t => {
+  const commands: string[] = [];
   for (const c of CLASSES)
-    for (const form of FORMS)
-      for (const target of TARGETS)
-        for (const command of [
+    for (const form of [...FORMS, '<', '2>&1 >'])
+      for (const target of [...TARGETS, '/dev/null'])
+        commands.push(
           `${c} ${form} ${target}`,
           `${c}; echo hi ${form}${target}`,
-        ])
-          if ((await verdict(command, cwd)) === 'ALLOW') allowed.push(command);
-  assert.deepEqual(allowed, []);
+        );
+  expectNotExempt(commands, fixture(t));
 });

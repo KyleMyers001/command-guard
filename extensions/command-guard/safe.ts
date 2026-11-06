@@ -1,13 +1,13 @@
-// EL-115 PR6 safe list (Sophie's rulings 3 and 4): commands that may share a
-// chain with a class atom. Each is bare, with literal arguments and only the
-// flags listed here; anything else keeps main's verdict.
+// Commands that may share a chain with an exempt command (exemptions.ts).
+// Each is bare, with literal arguments and only the flags listed here; a
+// chain holding anything else keeps every ask.
 
 const PM = /^(?:npm|pnpm|yarn|bun)$/u;
 // Repo-relative literal paths: no absolute path, `..`, `~` or option.
 const relative = (arg: string): boolean =>
   /^[\w.+=,%@][\w.+=,%@/-]*$/u.test(arg) && !arg.split('/').includes('..');
 const REV = /^(?!\/)[\w.^~@{}/-]+$/u;
-// Each reader's exact flags (Sophie's ruling 3); arguments are files.
+// Each reader's exact flags; arguments are files.
 const READER_FLAGS: Record<string, RegExp> = {
   cat: /^$/u,
   wc: /^-l$/u,
@@ -80,17 +80,12 @@ function safeGit(args: string[]): boolean {
   return true;
 }
 
-export function isSafe(words: string[], alone = false): boolean {
+export function isSafe(words: string[]): boolean {
   const [head, ...args] = words;
   if (head === 'cd') return true;
-  // Sophie (CR on 850ef37): printf is not safe in a chain (its format string
-  // expands), so a chain holding one keeps main's verdict; alone it prints,
-  // as before. In a chain echo passes
-  // only with plain literal words: no option (-e decodes), no backslash escape.
-  // Unquoted `~`, globs and other shell-special characters are checked in
-  // gate.ts on the raw text.
-  if (alone && head === 'echo') return true;
-  if (alone && head === 'printf') return !args[0]?.startsWith('-');
+  // printf is not safe: its format string expands. echo passes only with
+  // literal words: no option (-e decodes) and no backslash escape. Unquoted
+  // `~`, globs and other shell-special characters are checked in gate.ts.
   if (head === 'echo')
     return args.every(arg => !arg.startsWith('-') && !arg.includes('\\'));
   if (head === 'pwd' || head === 'true') return args.length === 0;

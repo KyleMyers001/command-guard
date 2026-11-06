@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {fixture} from './helpers/fixtures.ts';
-import {expectVerdicts, verdict} from './helpers/verdict.ts';
+import {expectNotExempt, expectVerdicts, verdict} from './helpers/verdict.ts';
 
-// EL-115 PR6 chain gate (Sophie's allowlist ruling). An exemption loosens a
-// chain only when every other command is on the safe list and nothing in the
-// chain expands, substitutes, pipes into a non-filter or writes a file.
+// The chain gate: an exemption loosens a chain only when every other command
+// is on the safe list and nothing in the chain expands, substitutes, pipes
+// into a non-filter or redirects.
 // Main asks or denies each of these, so none may be ALLOW.
 const UNSAFE = [
   // CR findings and the spellings listed with them.
@@ -109,6 +109,7 @@ const SEPARATORS = ['; ', ' && ', ' || ', '\n', ' & '];
 test('generated classes x companions x separators', async t => {
   const cwd = fixture(t);
   const wrong: string[] = [];
+  const risky: string[] = [];
   for (const atom of ATOMS)
     for (const separator of SEPARATORS) {
       // curl -o is exempt only as the whole command, as at 10df0fe.
@@ -117,11 +118,8 @@ test('generated classes x companions x separators', async t => {
         if ((await verdict(command, cwd)) !== 'ALLOW') wrong.push(command);
       }
       for (const other of RISKY)
-        for (const command of [
-          atom + separator + other,
-          other + separator + atom,
-        ])
-          if ((await verdict(command, cwd)) === 'ALLOW') wrong.push(command);
+        risky.push(atom + separator + other, other + separator + atom);
     }
   assert.deepEqual(wrong, []);
+  expectNotExempt(risky, cwd);
 });

@@ -194,25 +194,28 @@ function classifyCheckout(
   const [operand] = operands;
   if (operand.text === '-') return [];
 
-  // `--detach` never takes a path: Git refuses `--detach README.md`, so a
-  // literal operand can only be a commit and nothing in the tree is at risk.
-  // Any dynamic word could still expand to `-f`/`--force` or `--`, and a Git directory or
-  // work tree that cannot be established may be anywhere, so those ask.
-  if (
-    plainGlobals &&
-    workdirs &&
-    !createsBranch &&
-    !args.some(arg => arg.dynamic) &&
-    args.some(isDetach)
-  )
-    return [];
-
   const mayBePath =
     operand.dynamic ||
     looksLikePath(operand.text) ||
     workdirs === undefined ||
     workdirs.some(dir => existsSync(resolve(dir, operand.text)));
-  return mayBePath ? [CHECKOUT_OVERWRITES] : [];
+  if (!mayBePath) return [];
+
+  // `--detach` never takes a path: Git refuses `--detach README.md`, so a
+  // literal operand can only be a commit and nothing in the tree is at risk.
+  // A dynamic word could still expand to `-f`/`--force` or `--`, and a Git
+  // directory or work tree that cannot be established may be anywhere, so
+  // those ask. The ask may be dropped only for a command made wholly of
+  // exempt and safe-listed commands (gate.ts).
+  const detaches =
+    plainGlobals &&
+    workdirs !== undefined &&
+    !createsBranch &&
+    !args.some(arg => arg.dynamic) &&
+    args.some(isDetach);
+  return [
+    detaches ? {...CHECKOUT_OVERWRITES, exemptible: true} : CHECKOUT_OVERWRITES,
+  ];
 }
 
 const RESTORE_INDEX_SAFE_OPTIONS = new Set([

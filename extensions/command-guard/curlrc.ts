@@ -2,11 +2,11 @@ import {readFileSync, statSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 
-// EL-115 PR6 curlrc check (CR F4, fail closed). curl reads a default config
-// file unless -q is given, and any option there applies to `curl -o`. The
-// download exemption stays on only when every curlrc option is on this
-// allowlist, spelled in full or as its short flag. Anything else, including
-// abbreviations, `config`/`-K` includes and read errors, turns it off.
+// curl reads a default config file unless -q is given, and any option there
+// applies to `curl -o`. The download exemption stays on only when every
+// curlrc option is on this allowlist, spelled in full or as its short flag.
+// Anything else, including abbreviations, `config`/`-K` includes and read
+// errors, turns it off (fail closed).
 const LONG = new Set([
   'silent',
   'show-error',
@@ -74,14 +74,3 @@ function riskyFile(path: string): boolean {
 
 export const curlrcRiskyIn = (env: NodeJS.ProcessEnv): boolean =>
   curlrcPaths(env).some(riskyFile);
-
-export type CurlrcCheck = () => boolean;
-const defaultCheck: CurlrcCheck = () => curlrcRiskyIn(process.env);
-let check = defaultCheck;
-
-// Tests swap the check; nothing reads the real home directory there.
-export function setCurlrcCheck(next?: CurlrcCheck): void {
-  check = next ?? defaultCheck;
-}
-
-export const curlrcRisky = (): boolean => check();

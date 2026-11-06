@@ -1,41 +1,75 @@
 import {basename} from 'node:path';
-import {carriesCommand} from './carrier.ts';
-import {isClassAtom, normalize, SHELLS} from './chain.ts';
 import {curlWrites} from './curl.ts';
-import {curlrcRisky} from './curlrc.ts';
+import {exemptClass, type ExemptClass} from './exemptions.ts';
+import type {CommandTexts} from './match.ts';
 import {filters, isSafe} from './safe.ts';
-import type {Word} from './shell.ts';
-import {isFed} from './stdin.ts';
+import type {Parsed, Word} from './shell.ts';
+import {spell} from './spelling.ts';
 
-// EL-115 PR6 chain gate (Sophie's rulings, default deny). When any class
-// word appears, the exemptions may loosen the command only if it is
-// provably safe: every simple command is a bare, literal class atom or on
-// the safe list, nothing expands, substitutes, groups, runs a nested shell,
-// pipes into anything but a fixed text filter, or writes through a
-// redirection. Otherwise the parser adds `__chain_unsafe__` and an ask rule
-// keeps main's verdict.
+// Decides whether a command may use the exemptions in exemptions.ts. It may
+// only when it is a chain of simple commands, each an exempt command or on
+// the safe list (safe.ts), with nothing that expands, substitutes, groups,
+// runs a nested shell, changes directory before an `rm` or `curl`, pipes into
+// anything but a fixed text filter, or writes through a redirection. Then the
+// ask rules read the command with each exempt command's name blanked out, so
+// a rule keyed on `rm`, `git`, `gh`, `curl` or a package manager no longer
+// sees it, while every other rule still reads the rest. Deny rules always
+// read the whole command. Any other command keeps the policy as written.
 
-// The shapes the seven exemptions loosen, unanchored (CR F1): wherever one
-// appears in the raw or canonical text, the command must prove itself safe.
-// Each shape is tested only at a segment start, with lookaheads that scan
-// that segment once, so the cost stays linear in the text.
-const SEGMENT = String.raw`(?:^|[\n;&|])`;
-const BODY = String.raw`[^\n;&|]*`;
-const has = (word: string) =>
-  String.raw`(?=${BODY}?(?<![\w.-])${word}(?![\w-]))`;
-const CLASS_SHAPE = new RegExp(
-  [
-    `${has('rm')}(?=${BODY}\\s(?:-[a-zA-Z]*[rR]|--recursive))`,
-    `${has('git')}(?=${BODY}\\s(?:merge|checkout)(?![\\w-])|${BODY}\\sconfig\\s+\\S)`,
-    String.raw`(?=${BODY}?(?:graphql|--detach(?![\w-])|(?:test|lint|check)[:-]migrat))`,
-    `${has('curl')}(?=${BODY}\\s(?:-[a-zA-Z]*[oO]|--output|--remote-name)(?![\\w-])(?![=\\s]+/dev/null(?![\\w/.-])))`,
-  ]
-    .map(shape => SEGMENT + shape)
-    .join('|'),
-  'mu',
-);
-export const mentionsClass = (...texts: string[]): boolean =>
-  texts.some(text => CLASS_SHAPE.test(text));
+const SHELLS = new Set([
+  'bash',
+  'sh',
+  'zsh',
+  'dash',
+  'ksh',
+  'fish',
+  'eval',
+  'source',
+]);
+const WRAPPERS = new Set([
+  'env',
+  'command',
+  'exec',
+  'nice',
+  'nohup',
+  'timeout',
+  'sudo',
+  'doas',
+  'time',
+  'builtin',
+  'xargs',
+  'stdbuf',
+  'ionice',
+  'setsid',
+  'caffeinate',
+  'chronic',
+]);
+// Commands that run another command line out of sight.
+const CARRIERS = /^(?:ssh|su|nsenter|chroot)$/u;
+
+// The program a segment runs once assignments, wrappers and their options
+// are skipped, without its path.
+function program(words: string[]): string {
+  const head = words.find(
+    word =>
+      !/^[A-Za-z_]\w*=/u.test(word) &&
+      !word.startsWith('-') &&
+      !/^\d+(?:\.\d+)?[smhd]?$/u.test(word) &&
+      !WRAPPERS.has(basename(word)),
+  );
+  return basename((head ?? '').replace(/^\\/u, ''));
+}
+
+function runsHidden(words: string[]): boolean {
+  const head = program(words);
+  return (
+    head === '.' ||
+    SHELLS.has(head) ||
+    CARRIERS.test(head) ||
+    words.some(word => SHELLS.has(basename(word))) ||
+    (/^(?:docker|podman|kubectl)$/u.test(head) && words.includes('exec'))
+  );
+}
 
 // Expansion, substitution, heredocs and here-strings outside single quotes;
 // device and proc paths; input redirected from outside the repository.
@@ -43,27 +77,24 @@ const RISKY_TEXT =
   /[$`]|[<>]\(|<<|(?<!>\s*)\/dev\/(?!null(?![\w/.-]))|>\s*\/dev\/(?!(?:null|stdout|stderr)(?![\w/.-]))|\/proc\/|<\s*(?:[/~]|\.\.)/u;
 // Groups, subshells, negation and brace expansion, outside quotes.
 const COMPOUND = /[(){}!]/u;
-// Steps that change what a relative path names (kept from 10df0fe's rules).
+// Anything but printable ASCII, space and newline. The scanner reads a
+// carriage return as a word break, which the shell does not.
+const UNUSUAL = /[^\x20-\x7e\n]/u;
+// Steps that change what a relative path names.
 const DIR_HEADS = new Set(['cd', 'pushd', 'popd', 'chdir', 'chroot', '.']);
 const MOVES_DIR =
   /(?<![\w./-])(?:cd|pushd|popd|chdir|chroot|source|eval)(?![\w.-])|(?:^|[;&|(\n{]|then|do|else)\s*(?:(?:builtin|command)\s+)?\.(?=\s)|\s-C(?![\w-])|--chdir/u;
 
-// One pass over the text: `plain` has every quoted string and escaped
-// character replaced by MARK; `live` keeps double-quoted text, where `$` and
-// backticks still expand. Undefined when a quote is left open.
-// Stands in for a quoted string or escaped character in `plain`.
-const MARK = '\u0001';
-// Stands in for a backslash escape outside quotes.
-const ESCAPE = '\u0002';
-// Anything but plain word characters, spaces and a quoted string (MARK).
-const NOT_PLAIN = new RegExp(`[^\\w .,:/=+${MARK}-]`, 'u');
-function scan(text: string): {plain: string; live: string} | undefined {
-  let plain = '';
+// The command with every quoted string replaced by `_` (`unquoted`) and with
+// double-quoted text kept, where `$` and backticks still expand (`live`).
+// Undefined when a quote is left open.
+function scan(text: string): {unquoted: string; live: string} | undefined {
+  let unquoted = '';
   let live = '';
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
     if (char === '\\') {
-      plain += ESCAPE;
+      unquoted += '_';
       live += '_';
       i++;
     } else if (char === "'" || char === '"') {
@@ -71,128 +102,119 @@ function scan(text: string): {plain: string; live: string} | undefined {
       while (j < text.length && text[j] !== char)
         j += char === '"' && text[j] === '\\' ? 2 : 1;
       if (j >= text.length) return undefined;
-      plain += MARK;
+      unquoted += '_';
       live += char === '"' ? text.slice(i, j + 1) : '_';
       i = j;
     } else {
-      plain += char;
+      unquoted += char;
       live += char;
     }
   }
-  return {plain, live};
+  return {unquoted, live};
 }
 
-const texts = (segment: Word[]): string[] => segment.map(word => word.text);
+// `echo` decodes nothing without options, but the shell still expands an
+// unquoted `~`, glob or other special character before echo sees it.
+const ECHO_WORD = /^(?:[\w.,:/=+-]|'[^']*'|"[^"$`\\]*")+$/u;
 
-// P16-F3 (Sophie): a segment that is a bare `git`, or whose command word is
-// option-like (`-C`), is a mis-parse waiting to happen: the canonical text
-// joins lines with a newline, so `git; -C x merge main` reads as one
-// `git -C x merge`. The command then keeps main's verdict.
-export const strayGit = (parsed: Word[][]): boolean =>
-  parsed.some(
-    list =>
-      list.length > 0 &&
-      (list[0].text.startsWith('-') ||
-        (list.length === 1 && basename(list[0].text) === 'git')),
-  );
+const end = (word: Word): number => (word.start ?? 0) + (word.raw ?? '').length;
 
-export function chainUnsafe(
+// What a segment spans in the command, from its first word to its last.
+const span = (command: string, segment: Word[]): string =>
+  command.slice(segment[0].start, end(segment[segment.length - 1]));
+
+// The texts the ask rules read when the command may use the exemptions,
+// otherwise undefined. `curlrcRisky` reports whether a curl config file could
+// redirect a download.
+export function exemptTexts(
   command: string,
-  parsed: Word[][],
+  parsed: Parsed,
   expanded: Word[][],
-  wroteOutput: boolean,
-): boolean {
+  curlrcRisky: () => boolean,
+): CommandTexts | undefined {
+  const {segments} = parsed;
   const text = scan(command);
   if (
-    wroteOutput ||
+    parsed.writesOutput ||
     text === undefined ||
+    UNUSUAL.test(command) ||
     RISKY_TEXT.test(text.live) ||
-    COMPOUND.test(text.plain)
+    COMPOUND.test(text.unquoted) ||
+    // A nested shell or eval added commands of its own.
+    expanded.length !== segments.length ||
+    segments.some(segment => segment.some(word => word.dynamic))
   )
-    return true;
-  const {plain} = text;
-  // Ruling 1: a nested shell or eval anywhere keeps main's verdict.
-  if (expanded.length !== parsed.length) return true;
-  const words = parsed.map(texts);
-  if (
-    words.some(
-      list =>
-        normalize(list)[0] === '.' ||
-        list.some(word => SHELLS.has(basename(word))) ||
-        carriesCommand(list),
+    return undefined;
+
+  const words = segments.map(segment => segment.map(word => word.text));
+  const classes: (ExemptClass | undefined)[] = segments.map(exemptClass);
+  if (!classes.some(Boolean) || words.some(runsHidden)) return undefined;
+
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i];
+    const head = segment[0];
+    // The program is named as written: no quote, escape or continuation.
+    if (head.raw !== head.text || head.text.startsWith('-')) return undefined;
+    // No command has a redirection, and only a fixed filter reads a pipe.
+    if (parsed.redirected.has(segment)) return undefined;
+    if (parsed.fed.has(segment) && !filters(words[i])) return undefined;
+    if (classes[i]) {
+      // No backslash anywhere in an exempt command: a continuation between
+      // words is not part of either word.
+      if (span(command, segment).includes('\\')) return undefined;
+    } else if (
+      !isSafe(words[i]) ||
+      (head.text === 'echo' &&
+        !segment.slice(1).every(word => ECHO_WORD.test(word.raw ?? '')))
     )
-  )
-    return true;
-  const atoms = words.filter(isClassAtom);
-  // A directory change is found in the raw text and in the decoded words,
-  // so `c''d`, `\cd` and `c\<newline>d` count too (Codex 4466292988).
+      return undefined;
+  }
+
+  // A relative path names something else after a directory change. The raw
+  // text is checked too, so `c''d` and `\cd` count.
+  const removesOrWrites = classes.some(
+    found => found === 'rm' || found === 'curl',
+  );
   if (
-    atoms.some(list => list[0] === 'rm' || list[0] === 'curl') &&
+    removesOrWrites &&
     (MOVES_DIR.test(command) ||
       words.some(
         list =>
           DIR_HEADS.has(list[0]) ||
-          DIR_HEADS.has(normalize(list)[0]) ||
           list.some(word => /^(?:-C|--chdir(?:=.*)?)$/u.test(word)),
       ))
   )
-    return true;
-  if (
-    words.some(
-      list =>
-        normalize(list)[0] === 'curl' &&
-        curlWrites(list.slice(1)) &&
-        (!isClassAtom(list) || curlrcRisky()),
-    )
-  )
-    return true;
-  // Bare means as written, decided per segment: the segment that holds an
-  // atom must start with the literal head (`\\git`, `'git'`, `g''it` keep
-  // main's verdict). Segments that cannot be matched up fail closed.
-  const spelled = plain
-    .split(/&&|\|\||(?<![<>])&(?!>)|(?<![>&])\|(?!&)|\|&|[;\n]/u)
-    // Only ASCII spaces: trim() would drop CR, TAB, VT, FF, NBSP, FEFF and
-    // U+2028 before the command-word check (CR R1, Sophie's ruling).
-    .map(part => part.replace(/^ +| +$/gu, ''))
-    .filter(part => part !== '');
-  const listed = words.filter(list => list.length > 0);
-  if (spelled.length !== listed.length) return true;
-  for (let i = 0; i < listed.length; i++) {
-    // Sophie's final ruling: any segment whose command word is quoted,
-    // escaped, continued or expanded keeps main's verdict for the chain.
-    // A redirection before the command word, or a command word holding a
-    // control or non-ASCII character (CR, TAB, ...), also keeps it.
-    const head = /^[^ ]*/u.exec(spelled[i])?.[0] ?? '';
-    if (/[$`]|[^\x21-\x7e]|^\d*[<>]|^&>/u.test(head)) return true;
-    if (/[^\x21-\x7e]/u.test(listed[i][0])) return true;
-    // echo args are checked decoded in safe.ts; an unquoted `\n` decodes
-    // to `n`, so a raw backslash escape in the segment also fails closed.
-    // Unquoted `~`, `*`, `?`, `[` and the like expand (home, glob) before
-    // echo sees them, so only plain characters, or quoted text, pass
-    // (Codex 4467802395). printf is not on the safe list (safe.ts).
-    if (
-      listed[i][0] === 'echo' &&
-      (spelled[i].includes(ESCAPE) || NOT_PLAIN.test(spelled[i]))
-    )
-      return true;
-    if (
-      isClassAtom(listed[i]) &&
-      !new RegExp(`^${listed[i][0]}(?:[ \\t]|$)`, 'u').test(spelled[i])
-    )
-      return true;
-  }
+    return undefined;
 
-  for (let i = 0; i < parsed.length; i++) {
-    const segment = parsed[i];
-    if (segment.length === 0) continue;
-    if (segment[0].dynamic) return true;
-    if (parsed.length > 1 && isFed(segment) && !filters(words[i])) return true;
+  // A download must end the command and no curl config may redirect it; any
+  // other curl that writes a file keeps the ask.
+  for (let i = 0; i < segments.length; i++) {
+    if (program(words[i]) !== 'curl' || !curlWrites(words[i].slice(1)))
+      continue;
+    const last = segments[i][segments[i].length - 1];
+    if (
+      classes[i] !== 'curl' ||
+      command.slice(end(last)).trim() !== '' ||
+      curlrcRisky()
+    )
+      return undefined;
   }
-  // Default deny: every command, alone or chained, is an atom or safe-listed.
-  return !words.every(
-    list =>
-      list.length === 0 ||
-      isClassAtom(list) ||
-      isSafe(list, listed.length === 1),
-  );
+  if (classes.includes('graphql') && /mutation/iu.test(command))
+    return undefined;
+
+  // Blank each exempt command's name, keeping every other character where
+  // it was, and drop it from that command's canonical line.
+  let raw = command;
+  const lines = segments.map((segment, i) => {
+    const kept = classes[i] ? segment.slice(1) : segment;
+    if (classes[i]) {
+      const {start = 0, text: name} = segment[0];
+      raw =
+        raw.slice(0, start) +
+        ' '.repeat(name.length) +
+        raw.slice(start + name.length);
+    }
+    return kept.map(spell).join(' ');
+  });
+  return {raw, canonical: lines.join('\n'), lines};
 }

@@ -146,8 +146,6 @@ test('fail-closed analysis carries the first scanner reading', () => {
     'git push origin feat/x',
     'cat',
     '--force',
-    '__chain_unsafe__',
-    '__carried__',
   ]);
   assert.ok(analysis.decisions.some(d => d.verdict === 'deny'));
 });

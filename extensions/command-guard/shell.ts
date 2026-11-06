@@ -3,8 +3,7 @@ import {
   skipHeredocs as skipLegacyHeredocs,
 } from './shell-text.ts';
 import {type Heredoc, skipHeredocs} from './heredoc.ts';
-import {noteOutput, noteOutputProcess} from './redirect.ts';
-import {markStdin} from './stdin.ts';
+import {isHarmlessOutput} from './redirect.ts';
 
 // Bounded decoding of literal shell words. This is not a shell interpreter:
 // it recognizes quoting, escapes, command separators, redirections,
@@ -19,6 +18,24 @@ export interface Word {
   dynamic: boolean;
   // True when an expansion other than a plain brace pair made it dynamic.
   expands?: boolean;
+  // The word as written, quotes and escapes included, and where it starts in
+  // the text that was scanned. Set by the scanner.
+  raw?: string;
+  start?: number;
+}
+
+// What the scanner learned about a command besides its words.
+export interface Parsed {
+  segments: Word[][];
+  // Simple commands that read standard input: the right side of a pipe, or a
+  // command with an input redirection, here-document, here-string or process
+  // substitution.
+  fed: Set<Word[]>;
+  // Simple commands with any redirection or here-document.
+  redirected: Set<Word[]>;
+  // An output redirection other than one that only duplicates or closes a
+  // file descriptor or writes to /dev/null, stderr or stdout.
+  writesOutput: boolean;
 }
 
 // Uncertain scans are also checked with the original command splitter.
@@ -35,13 +52,22 @@ const KNOWN_OPERATORS = new Set('< > >> >| >& &> &>> << <<< <> <&'.split(' '));
 const MAX_DEPTH = 8;
 
 // Every simple command in the text, including those inside substitutions.
-export function parseSegments(
+export function parseCommand(
   command: string,
   mode: ShellMode = {legacy: false, uncertain: false},
-): Word[][] {
-  const segments: Word[][] = [];
-  scanCommands(command, 0, undefined, segments, 0, mode);
-  return segments;
+): Parsed {
+  const parsed: Parsed = {
+    segments: [],
+    fed: new Set(),
+    redirected: new Set(),
+    writesOutput: false,
+  };
+  scanCommands(command, 0, undefined, parsed, 0, mode);
+  return parsed;
+}
+
+export function parseSegments(command: string, mode?: ShellMode): Word[][] {
+  return parseCommand(command, mode).segments;
 }
 
 // Scans commands until `closer` (`)` or a backtick) or the end of the text,
@@ -50,11 +76,12 @@ function scanCommands(
   text: string,
   start: number,
   closer: ')' | '`' | undefined,
-  out: Word[][],
+  parsed: Parsed,
   depth: number,
   mode: ShellMode,
 ): number {
   if (depth > MAX_DEPTH) throw new Error('Shell nesting too deep');
+  const out = parsed.segments;
 
   let segment: Word[] = [];
   let word: Word | undefined;
@@ -66,11 +93,12 @@ function scanCommands(
   // Whether the current segment reads input, and whether `(` opens a
   // process substitution, whose commands read or write a pipe.
   let fed = false;
+  let redirected = false;
   let procSub = false;
   // The operator of an output redirection whose target word comes next.
   let output: string | undefined;
 
-  const current = (): Word => (word ??= {text: '', dynamic: false});
+  const current = (): Word => (word ??= {text: '', dynamic: false, start: i});
 
   function endWord(): void {
     if (!word) return;
@@ -84,8 +112,10 @@ function scanCommands(
     ) {
       mode.uncertain = true;
     }
-    if (output !== undefined) noteOutput(output, word);
+    if (output !== undefined && !isHarmlessOutput(output, word))
+      parsed.writesOutput = true;
     output = undefined;
+    word.raw = text.slice(word.start, i);
     if (redirect === 'heredoc')
       heredocs.push({delimiter: word.text, stripTabs});
     else if (redirect === 'none') segment.push(word);
@@ -96,21 +126,24 @@ function scanCommands(
 
   function endSegment(pipeAfter = false): void {
     endWord();
-    if (output !== undefined) noteOutput(output, undefined);
+    // A redirection with no target: fail closed.
+    if (output !== undefined) parsed.writesOutput = true;
     output = undefined;
     redirect = 'none';
     if (segment.length > 0) {
-      if (fed) markStdin(segment);
+      if (fed) parsed.fed.add(segment);
+      if (redirected) parsed.redirected.add(segment);
       out.push(segment);
       fed = false;
     }
+    redirected = false;
     fed ||= pipeAfter;
     segment = [];
   }
 
   function substitution(from: number, end: ')' | '`'): number {
     current().dynamic = current().expands = true;
-    return scanCommands(text, from, end, out, depth + 1, mode);
+    return scanCommands(text, from, end, parsed, depth + 1, mode);
   }
 
   let i = start;
@@ -139,7 +172,7 @@ function scanCommands(
         text,
         i + 1,
         current(),
-        (from, end) => scanCommands(text, from, end, out, depth + 1, mode),
+        (from, end) => scanCommands(text, from, end, parsed, depth + 1, mode),
         mode,
       );
     } else if (char === '$' && next === '(') {
@@ -172,6 +205,7 @@ function scanCommands(
 
       let operator = '';
       while (i < text.length && '<>&|'.includes(text[i])) operator += text[i++];
+      redirected = true;
 
       if (!mode.legacy) {
         if (!KNOWN_OPERATORS.has(operator)) mode.uncertain = true;
@@ -184,8 +218,8 @@ function scanCommands(
         if (/[<>]$/u.test(operator) && text[i] === '(') {
           mode.uncertain = true;
           fed = true;
-          if (operator.includes('>')) noteOutputProcess();
-          i = scanCommands(text, i + 1, ')', out, depth + 1, mode);
+          if (operator.includes('>')) parsed.writesOutput = true;
+          i = scanCommands(text, i + 1, ')', parsed, depth + 1, mode);
           redirect = 'none';
           continue;
         }
@@ -199,7 +233,7 @@ function scanCommands(
       procSub = text[i] === '(';
       if (procSub) fed = true;
       const writes = operator.includes('>');
-      if (writes && procSub) noteOutputProcess();
+      if (writes && procSub) parsed.writesOutput = true;
       else if (writes) output = operator;
     } else if (char === '|' && next === '|') {
       endSegment();

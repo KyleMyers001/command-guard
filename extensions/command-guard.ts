@@ -8,6 +8,7 @@ import {homedir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {analyzeCommand} from './command-guard/commands.ts';
+import {curlrcRiskyIn} from './command-guard/curlrc.ts';
 import {allDecisions, matchesEither} from './command-guard/legacy.ts';
 import {matches} from './command-guard/match.ts';
 import {canonicalPath, inputPaths} from './command-guard/paths.ts';
@@ -45,6 +46,9 @@ interface GuardOptions {
   // Test seams: environment (approval timeout) and monotonic clock (expiry detection).
   env?: NodeJS.ProcessEnv;
   now?: () => number;
+  // Whether a curl config file could redirect a `curl -o` download. Defaults
+  // to reading the real config files.
+  curlrcRisky?: () => boolean;
 }
 
 function supported(tool: string): tool is GuardTool {
@@ -81,6 +85,7 @@ export function createCommandGuard(options: GuardOptions = {}) {
   const homeDir = options.homeDir ?? home;
   const env = options.env ?? process.env;
   const now = options.now ?? (() => performance.now());
+  const curlrcRisky = options.curlrcRisky ?? (() => curlrcRiskyIn(process.env));
 
   // Test policy paths are additive: injection cannot remove production protections.
   const protectedFiles = [
@@ -112,7 +117,9 @@ export function createCommandGuard(options: GuardOptions = {}) {
 
     // Bash is judged by its decoded arguments as well as by its text.
     const analysis =
-      tool === 'bash' ? analyzeCommand(target, ctx.cwd) : undefined;
+      tool === 'bash'
+        ? analyzeCommand(target, ctx.cwd, {curlrcRisky})
+        : undefined;
     const targets = analysis
       ? [target, analysis.canonical]
       : inputPaths(tool, target, ctx.cwd, homeDir);
@@ -138,7 +145,12 @@ export function createCommandGuard(options: GuardOptions = {}) {
       texts && analysis
         ? matchesEither(rule, tool, texts, analysis, ctx.cwd, homeDir)
         : matches(rule, tool, targets, ctx.cwd, homeDir);
-    const decisions = allDecisions(analysis);
+    // A command made wholly of exempt and safe-listed commands (gate.ts)
+    // skips the asks that only exempt commands would raise.
+    const exempt = analysis?.exempt;
+    const decisions = allDecisions(analysis).filter(
+      decision => !(exempt && decision.exemptible),
+    );
 
     // 3. Command-analysis and JSON denies, which no approval can override.
     const refused = decisions.find(decision => decision.verdict === 'deny');
@@ -167,7 +179,11 @@ export function createCommandGuard(options: GuardOptions = {}) {
       );
     }
 
-    const asked = policy.ask.find(matchesCall);
+    const asked = policy.ask.find(rule =>
+      exempt
+        ? matches(rule, tool, exempt, ctx.cwd, homeDir)
+        : matchesCall(rule),
+    );
     if (!asked) return undefined;
 
     return requestApproval(

@@ -3,12 +3,14 @@ import {mkdirSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import test from 'node:test';
 import {analyzeCommand} from '../extensions/command-guard/commands.ts';
-import {
-  curlrcRiskyIn,
-  setCurlrcCheck,
-} from '../extensions/command-guard/curlrc.ts';
+import {curlrcRiskyIn} from '../extensions/command-guard/curlrc.ts';
 import {fixture} from './helpers/fixtures.ts';
-import {expectVerdicts, verdict} from './helpers/verdict.ts';
+import {
+  expectNotExempt,
+  expectVerdicts,
+  verdict,
+  verdictWith,
+} from './helpers/verdict.ts';
 
 // EL-115 PR6, Sophie's rulings on CR round 7: what cannot be proven safe keeps
 // main's verdict. Verdicts come from the shipped policy; nothing is executed.
@@ -28,12 +30,9 @@ const RISKY = [
   'echo hi > AGENTS.md',
 ];
 
-const notAllowed = async (commands: string[], cwd: string) => {
-  const loose: string[] = [];
-  for (const command of commands)
-    if ((await verdict(command, cwd)) === 'ALLOW') loose.push(command);
-  assert.deepEqual(loose, []);
-};
+// The policy reads these as written, so each keeps main's verdict.
+const notAllowed = async (commands: string[], cwd: string) =>
+  expectNotExempt(commands, cwd);
 
 test('the seven classes alone and the build chain stay allowed', async t => {
   await expectVerdicts(
@@ -220,13 +219,11 @@ test('curl -o keeps main verdicts outside plain repo files and public hosts (CR5
 test('a curlrc that can redirect output turns the curl exemption off (CR6)', async t => {
   const home = fixture(t);
   const command = 'curl -sSLo out.json https://example.com/a';
-  const check = (env: NodeJS.ProcessEnv) =>
-    setCurlrcCheck(() => curlrcRiskyIn(env));
-  t.after(() =>
-    setCurlrcCheck(() => curlrcRiskyIn({HOME: join(home, 'none')})),
-  );
-  check({HOME: home});
-  assert.equal(await verdict(command, home), 'ALLOW');
+  let judge = verdictWith(() => curlrcRiskyIn({HOME: home}));
+  const check = (env: NodeJS.ProcessEnv) => {
+    judge = verdictWith(() => curlrcRiskyIn(env));
+  };
+  assert.equal(await judge(command, home), 'ALLOW');
   for (const line of [
     'output-dir = /tmp',
     '--create-dirs',
@@ -236,19 +233,19 @@ test('a curlrc that can redirect output turns the curl exemption off (CR6)', asy
     '  -o x',
   ]) {
     writeFileSync(join(home, '.curlrc'), `silent\n${line}\n`);
-    assert.equal(await verdict(command, home), 'ASK', line);
+    assert.equal(await judge(command, home), 'ASK', line);
   }
   writeFileSync(join(home, '.curlrc'), 'silent\nretry = 3\n');
-  assert.equal(await verdict(command, home), 'ALLOW');
+  assert.equal(await judge(command, home), 'ALLOW');
   const xdg = join(home, 'xdg');
   mkdirSync(join(xdg, '.curlrc'), {recursive: true}); // unreadable as a file
   check({HOME: home, XDG_CONFIG_HOME: xdg});
-  assert.equal(await verdict(command, home), 'ASK');
+  assert.equal(await judge(command, home), 'ASK');
   const curlHome = join(home, 'ch');
   mkdirSync(curlHome);
   writeFileSync(join(curlHome, '.curlrc'), 'output-dir=/tmp\n');
   check({HOME: join(home, 'none'), CURL_HOME: curlHome});
-  assert.equal(await verdict(command, home), 'ASK');
+  assert.equal(await judge(command, home), 'ASK');
 });
 
 test('long chains and heredoc runs are classified in linear time', t => {

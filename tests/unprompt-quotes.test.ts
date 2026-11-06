@@ -1,6 +1,6 @@
 import test from 'node:test';
 import {fixture} from './helpers/fixtures.ts';
-import {expectVerdicts} from './helpers/verdict.ts';
+import {expectNotExempt, expectVerdicts} from './helpers/verdict.ts';
 
 // A separator inside a quoted string, or a heredoc body, is not a local command
 // boundary: the command may run on a remote host or in a script, so the
@@ -66,14 +66,22 @@ test('merge keeps asking for expansions and space-valued global options', async 
       'git --git-dir="/tmp/o r" merge feat/x',
       'git -C "a\\" b" merge feat/x',
       "git -c user.name='a b' merge feat/x",
-      "git --a=$'x\\'y z' merge feat/x",
       'git --git-dir /tmp/x merge feat/x',
       "git --git-dir '/tmp/x y' merge feat/x",
       'git --namespace n merge feat/x',
       'git --super-prefix p merge feat/x',
       'git --config-env a=B merge feat/x',
-      'git --attr-source t merge feat/x',
     ],
+    fixture(t),
+  );
+});
+
+// main's merge rule cannot skip a global option whose value is a separate
+// word or holds a quoted space, so it does not ask for these; they are not
+// exempt either, so they keep main's verdict.
+test('merge after a valued global option keeps main verdict', t => {
+  expectNotExempt(
+    ["git --a=$'x\\'y z' merge feat/x", 'git --attr-source t merge feat/x'],
     fixture(t),
   );
 });

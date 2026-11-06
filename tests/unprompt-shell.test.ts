@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {fixture} from './helpers/fixtures.ts';
-import {expectVerdicts, verdict} from './helpers/verdict.ts';
+import {expectNotExempt, expectVerdicts, verdict} from './helpers/verdict.ts';
 
-// EL-115 PR6: a chain that feeds a shell from a pipe, heredoc, here-string
-// or process substitution keeps asking when it holds a newly allowed class.
-// A shell fed that way on its own keeps main's verdict.
+// A chain that feeds a shell from a pipe, heredoc, here-string or process
+// substitution is never exempt, so it keeps main's verdict (or the pipe to a
+// shell deny). A shell fed that way on its own keeps main's verdict.
 const CLASSES = [
   'rm -rf dist',
   '/bin/rm -rf build',
@@ -96,13 +96,8 @@ test('named pipe-to-shell chains keep asking', async t => {
   );
 });
 
-// Main denies some curl forms outright; none may come back ALLOW.
-test('generated class x separator x shell x form sweep keeps prompting', async t => {
-  const cwd = fixture(t);
-  const allowed: string[] = [];
-  for (const command of chains())
-    if ((await verdict(command, cwd)) === 'ALLOW') allowed.push(command);
-  assert.deepEqual(allowed, []);
+test('generated class x separator x shell x form sweep is never exempt', t => {
+  expectNotExempt(chains(), fixture(t));
 });
 
 test('a shell fed on its own keeps main verdict', async t => {
