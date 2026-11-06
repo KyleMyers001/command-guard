@@ -11,47 +11,74 @@ import {
 import {unwrap} from './scripts.ts';
 import {parseSegments, type Word} from './shell.ts';
 
-// Package publishing is hard to undo, so it is always denied. The rule is
-// blunt and reads neither option grammar nor wrappers: when a segment has an
-// npm, pnpm, yarn, npx, lerna or changesets word (also `name@version` or a
-// path), any later word that is `publish` (or an npm prefix such as `pub`) is
-// a publish, whatever sits between them. A quoted word after a program that
-// runs scripts (`sh -c`, `su -c`, `eval`) is read as a script the same way.
-// This also denies `echo npm publish`, which the raw rule denies too. Only
-// help and version output is left alone, where npm is the command itself:
-// `npm help publish`, `npm -h publish`.
+// Package publishing is hard to undo, so it is always denied. Any npm, pnpm,
+// yarn, npx, lerna, changesets, vsce, ovsx or jsr word in a segment (also
+// `name@version` or a path) starts a runner, so no wrapper needs listing.
+// `publish` counts only where that runner reads it as what to do:
+//
+// - its subcommand: `npm publish`, `pnpm -r publish`, `npm pu`;
+// - the script of `run`: `npm run publish`, `lerna run publish`;
+// - after pnpm `recursive`, yarn `npm`, `workspace <name>` and
+//   `workspaces [foreach ...]`;
+// - inside a script given to `sh -c`, `eval`, `npx -c` and the like.
+//
+// A test filter, package name, option value or anything after `--` is not
+// a publish. Where the position cannot be read (an expansion or a long run
+// of options before it) any later `publish` counts, and so does any
+// `publish` text in a command too large to read. Only help and version output
+// is left alone where npm is the command: `npm help publish`, `npm -h publish`.
 
 const PUBLISHES: Decision = {
   verdict: 'deny',
   reason:
-    'package publish (npm, pnpm, yarn, lerna or changesets, including workspace and script forms) cannot be undone',
+    'package publish (npm, pnpm, yarn, lerna, changesets, vsce, ovsx or jsr, including workspace and script forms) cannot be undone',
   advice:
     'Inspect the package with `npm pack --dry-run`, and publish from CI or a terminal outside Pi.',
 };
 
-const RUNNERS = new Set([
-  'npm',
-  'pnpm',
-  'yarn',
-  'lerna',
-  'changeset',
-  'npx',
-  'pnpx',
-  'pn',
-  'pnx',
-  'yarnpkg',
+// `tool` is a CLI whose `publish` subcommand publishes to a registry of its
+// own: VS Code extensions (vsce, ovsx) and JSR packages.
+type Runner = 'npm' | 'pnpm' | 'yarn' | 'lerna' | 'changeset' | 'npx' | 'tool';
+
+const RUNNERS = new Map<string, Runner>([
+  ['npm', 'npm'],
+  ['pnpm', 'pnpm'],
+  ['pn', 'pnpm'],
+  ['yarn', 'yarn'],
+  ['yarnpkg', 'yarn'],
+  ['lerna', 'lerna'],
+  ['changeset', 'changeset'],
+  ['npx', 'npx'],
+  ['pnpx', 'npx'],
+  ['pnx', 'npx'],
+  ['vsce', 'tool'],
+  ['ovsx', 'tool'],
+  ['jsr', 'tool'],
 ]);
+
+// Options that always take the next word as their value. Any other option
+// written without `=` may take the next word too, so both readings count.
+const VALUE_OPTIONS: Record<Runner, ReadonlySet<string>> = {
+  npm: new Set(['-w', '--workspace', '--prefix', '-C']),
+  pnpm: new Set(['--filter', '-F', '--dir', '-C']),
+  yarn: new Set(['--cwd']),
+  lerna: new Set(),
+  changeset: new Set(),
+  npx: new Set(['-p', '--package']),
+  tool: new Set(),
+};
+
 // Levels of script in a script. Past this the command is denied, as it is
 // when it is too large to read and has a runner word and `publish` text.
 const MAX_DEPTH = 3;
 const MAX_WORDS = 1000;
 const MAX_CHARS = 8192;
+// Options read before a position. Past this the position is unknown.
+const MAX_OPTIONS = 64;
 
-// The runner a word names, or '' when it is not one.
-function runnerOf(word: Word): string {
-  if (word.dynamic || isScript(word)) return '';
-  const name = programOf(word);
-  return RUNNERS.has(name) ? name : '';
+function runnerOf(word: Word): Runner | undefined {
+  if (word.dynamic || isScript(word)) return undefined;
+  return RUNNERS.get(programOf(word));
 }
 
 // Whether `npm` is the command and stops at an info flag or `help`.
@@ -99,43 +126,188 @@ function largePublishes(words: Word[]): boolean {
   return runner && (publish || (npm && prefix));
 }
 
+// The indexes that may hold the next positional word from `from`: the first
+// word that is not an option, and the one after it while an option written
+// without `=` may have taken it as a value. A word after `--` is positional.
+// When options take every word (`pnpm --dir publish`), their values count.
+// Undefined when an expansion or too many options hide the position.
+function positions(
+  words: Word[],
+  from: number,
+  values: ReadonlySet<string>,
+): number[] | undefined {
+  const found: number[] = [];
+  const taken: number[] = [];
+  let value = false;
+  let mayBeValue = false;
+  let options = 0;
+
+  for (let i = from; i < words.length; i++) {
+    const word = words[i];
+    if (word.dynamic) return undefined;
+    if (value) {
+      value = false;
+      taken.push(i);
+    } else if (word.text === '--') {
+      if (i + 1 < words.length) found.push(i + 1);
+      return found;
+    } else if (word.text.length > 1 && word.text.startsWith('-')) {
+      if (++options > MAX_OPTIONS) return undefined;
+      value = values.has(word.text);
+      mayBeValue = !value && !word.text.includes('=');
+    } else {
+      found.push(i);
+      if (!mayBeValue) return found;
+      mayBeValue = false;
+    }
+  }
+  return found.length > 0 ? found : taken;
+}
+
+// npm accepts an unambiguous prefix of a command: `npm run-s` is run-script.
+const isNpmRun = (name: string): boolean =>
+  name === 'rum' ||
+  name === 'urn' ||
+  (name.length >= 3 && 'run-script'.startsWith(name));
+
+// Returns a reader of a runner's words, from the word after its name, for a
+// publish. `publishFrom` answers for a position that cannot be read. Each
+// (runner, index) is read once, so the cost stays linear however the
+// positions branch.
+function reader(
+  words: Word[],
+  publishFrom: (from: number, npm: boolean) => boolean,
+): (runner: Runner, from: number) => boolean {
+  const seen = new Set<string>();
+
+  // Whether the positional word after `from` passes `test`.
+  const any = (
+    runner: Runner,
+    from: number,
+    test: (index: number) => boolean,
+  ): boolean => {
+    const found = positions(words, from, VALUE_OPTIONS[runner]);
+    return found === undefined
+      ? publishFrom(from, runner === 'npm')
+      : found.some(test);
+  };
+
+  // Whether the subcommand that starts at `from` publishes.
+  const publishes = (runner: Runner, from: number): boolean => {
+    const key = `${runner}:${from}`;
+    if (runner === 'npx' || seen.has(key)) return false;
+    seen.add(key);
+    return any(runner, from, index => subcommand(runner, index));
+  };
+
+  const subcommand = (runner: Runner, index: number): boolean => {
+    const name = words[index].text;
+    const next = index + 1;
+    if (name === 'publish' || (runner === 'npm' && isNpmPublish(name)))
+      return true;
+    if (runner === 'tool') return false;
+    // The script of `run`: `npm run publish`, `yarn run publish:npm`.
+    if (
+      name === 'run' ||
+      name === 'run-script' ||
+      (runner === 'npm' && isNpmRun(name))
+    )
+      return any(runner, next, at =>
+        tokens(words[at].text).includes('publish'),
+      );
+    if (runner === 'pnpm' && /^(?:recursive|multi|m)$/u.test(name))
+      return publishes(runner, next);
+    if (runner !== 'yarn') return false;
+    if (name === 'npm') return publishes(runner, next);
+    // `yarn workspace <name> <command>`.
+    if (name === 'workspace')
+      return any(runner, next, at => publishes(runner, at + 1));
+    // `yarn workspaces foreach [options] <command>`, `yarn workspaces run`.
+    if (name === 'workspaces')
+      return any(runner, next, at =>
+        words[at].text === 'foreach'
+          ? publishes(runner, at + 1)
+          : subcommand(runner, at),
+      );
+    return false;
+  };
+
+  return publishes;
+}
+
 // Whether the text of a script, such as the value of `sh -c`, publishes.
 function scriptPublishes(script: string, depth: number): boolean {
   return parseSegments(script).some(segment => publishes(segment, depth + 1));
 }
 
-// Whether a segment publishes. Linear in its words: one pass, no slices.
+// The words a script-taker joins after a script that ends in a runner:
+// `ssh h 'a npm' publish` runs `npm publish`. The runner and the words of the
+// script after it come first.
+function carried(
+  script: string,
+  rest: Word[],
+): {runner: Runner; words: Word[]} | undefined {
+  const parts = tokens(script);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const runner = RUNNERS.get(nameOf(parts[i]));
+    if (runner === undefined) continue;
+    const words = parts
+      .slice(i + 1)
+      .map((text): Word => ({text, dynamic: false}));
+    return {runner, words: [...words, ...rest]};
+  }
+  return undefined;
+}
+
+// Whether a word from an index on is `publish` (with npm, also a prefix of
+// it), for positions that cannot be read. Built on first use, in one pass.
+function publishedFrom(words: Word[]): (from: number, npm: boolean) => boolean {
+  let publish: boolean[] | undefined;
+  let prefix: boolean[] | undefined;
+  return (from, npm) => {
+    if (publish === undefined || prefix === undefined) {
+      publish = new Array<boolean>(words.length + 1).fill(false);
+      prefix = new Array<boolean>(words.length + 1).fill(false);
+      for (let i = words.length - 1; i >= 0; i--) {
+        const word = words[i];
+        publish[i] = publish[i + 1] || tokens(word.text).includes('publish');
+        prefix[i] =
+          prefix[i + 1] || (!isScript(word) && isNpmPublish(word.text));
+      }
+    }
+    return publish[from] || (npm && prefix[from]);
+  };
+}
+
+// Whether a segment publishes.
 function publishes(words: Word[], depth: number): boolean {
   if (depth > MAX_DEPTH) return true;
   if (tooLarge(words)) return largePublishes(words);
   if (isInfoForm(words)) return false;
 
+  const read = reader(words, publishedFrom(words));
+
   let runner = false;
-  let npm = false;
   let takesScripts = false;
-
-  for (const word of words) {
-    const script = isScript(word);
-
-    if (runner && tokens(word.text).includes('publish')) return true;
-    if (script && (runner || takesScripts)) {
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    if (isScript(word) && (runner || takesScripts)) {
       // `--call=script` and `-cscript` carry the script after the option.
       const bare = word.text.replace(/^(?:--call=|-c=?)/u, '');
       if (scriptPublishes(word.text, depth)) return true;
       if (bare !== word.text && scriptPublishes(bare, depth)) return true;
-      // The taker joins its words, so a runner at the end of this script
-      // runs a `publish` that follows: `ssh h 'a npm' publish`.
-      for (const token of tokens(word.text)) {
-        const name = nameOf(token);
-        if (RUNNERS.has(name)) runner = true;
-        if (name === 'npm') npm = true;
+      const joined = carried(word.text, words.slice(i + 1));
+      if (joined) {
+        runner = true;
+        if (reader(joined.words, () => true)(joined.runner, 0)) return true;
       }
     }
-    if (npm && !script && isNpmPublish(word.text)) return true;
 
     const name = runnerOf(word);
-    if (name) runner = true;
-    if (name === 'npm') npm = true;
+    if (name) {
+      runner = true;
+      if (read(name, i + 1)) return true;
+    }
     if (!word.dynamic && SCRIPT_TAKERS.has(basename(word.text)))
       takesScripts = true;
   }

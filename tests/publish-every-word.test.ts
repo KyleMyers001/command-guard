@@ -2,10 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {analyzeCommand} from '../extensions/command-guard/commands.ts';
 
-// EL-115 / PR 5, round 5. The classifier scans every word of a segment: a
-// runner word (npm, pnpm, yarn, npx, lerna, changeset, also `name@version` or
-// a path) followed by a `publish` word is a publish, whatever stands between
-// them, so no wrapper needs listing. Commands are only parsed, never run.
+// Any runner word in a segment (npm, pnpm, yarn, npx, lerna, changeset, also
+// `name@version` or a path) starts a command the classifier reads, so no
+// wrapper needs listing. Commands are only parsed, never run.
 
 const denies = (command: string) =>
   analyzeCommand(command, import.meta.dirname).decisions.some(decision =>
@@ -153,6 +152,7 @@ test('round 5: help and version stay allowed where npm is the command', () => {
     'FOO=1 npm help publish',
     'time npm help publish',
     'if true; then npm help publish; fi',
+    'nohup npm help publish',
   ])
     assert.equal(denies(command), false, command);
   for (const command of [
@@ -160,7 +160,6 @@ test('round 5: help and version stay allowed where npm is the command', () => {
     'npm publish -h',
     'npm publish --dry-run',
     'npm --registry -v publish',
-    'nohup npm help publish',
   ])
     assert.equal(denies(command), true, command);
 });

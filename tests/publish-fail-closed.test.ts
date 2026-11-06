@@ -3,9 +3,9 @@ import test from 'node:test';
 import {analyzeCommand} from '../extensions/command-guard/commands.ts';
 import {expectAll} from './helpers/verdict.ts';
 
-// EL-115 / PR 5, round 3. The classifier does not read option grammar: any
-// `publish` word of an npm, pnpm, yarn, npx, lerna or changesets command, or
-// inside a script it carries, is denied. Commands are only parsed, never run.
+// `publish` counts where a runner reads it as what to do, and in any script a
+// runner or script-taker carries. Where an option may take the next word as
+// its value, both readings count. Commands are only parsed, never run.
 
 const classifierDenies = (command: string) =>
   analyzeCommand(command, import.meta.dirname).decisions.some(decision =>
@@ -79,11 +79,8 @@ test('round 3: an option that is really a flag does not hide publish', async () 
   );
 });
 
-test('round 3: any publish word of these tools is denied, whatever the options (accepted over-blocks)', () => {
+test('a quoted script after a runner, and unreadable options, still count', () => {
   for (const command of [
-    'npm install publish',
-    'npm run test -- publish',
-    'npm view publish version',
     'npm --registry=x -h publish',
     'npm --foo=1 -v publish',
     "npm exec -- tsc --call='lerna publish'",
@@ -91,13 +88,45 @@ test('round 3: any publish word of these tools is denied, whatever the options (
     "npx tsc -c 'lerna publish'",
     'pnpm exec echo "npm publish"',
     "pnpm exec printf '%s\\n' 'example; lerna publish'",
-    'pnpm add publish',
     'npx cowsay "npm publish"',
-    'yarn add publish',
     'npm -d -v publish',
     'npm -ddd -v publish',
+    'npm -- publish',
+    'npm run -- publish',
+    'npm run publish:npm',
+    'pnpm --dir publish',
+    'pnpm -r exec npm publish',
+    'yarn workspaces foreach -A run publish',
   ]) {
     assert.equal(classifierDenies(command), true, command);
+  }
+});
+
+test('publish as a package name, filter, option value or after -- is not a publish', () => {
+  for (const command of [
+    'npm install publish',
+    'npm i -D publish',
+    'npm view publish version',
+    'pnpm add publish',
+    'yarn add publish',
+    'npm run test -- publish',
+    'npm test -- --test-name-pattern publish',
+    'npm run test -- -t publish',
+    'npm -w pkg test -- publish',
+    'npm run build -- --outDir pub',
+    'pnpm --filter publish test',
+    'pnpm -r --filter publish run test',
+    'pnpm test --filter publish',
+    'pnpm vitest run publish',
+    'npx vitest publish',
+    'npm exec vitest publish',
+    'pnpm dlx vitest publish',
+    'yarn dlx vitest publish',
+    'yarn workspace publish build',
+    'yarn npm info publish',
+    'lerna run test --scope publish',
+  ]) {
+    assert.equal(classifierDenies(command), false, command);
   }
 });
 
@@ -111,4 +140,19 @@ test('round 3: help and version output is allowed', () => {
   ]) {
     assert.equal(classifierDenies(command), false, command);
   }
+});
+
+test('VS Code extension and JSR publishing CLIs are publishes', () => {
+  for (const command of [
+    'npx vsce publish',
+    'vsce publish',
+    'npx @vscode/vsce publish',
+    'pnpm dlx @vscode/vsce publish --pat x',
+    'npx ovsx publish',
+    'npx jsr publish',
+    'npm run release:publish',
+  ])
+    assert.equal(classifierDenies(command), true, command);
+  for (const command of ['npx vsce package', 'vsce ls', 'npx jsr add @std/fs'])
+    assert.equal(classifierDenies(command), false, command);
 });
