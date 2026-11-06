@@ -133,6 +133,9 @@ export function exemptTexts(
   curlrcRisky: () => boolean,
 ): CommandTexts | undefined {
   const {segments} = parsed;
+  // Most commands hold no exempt command: stop before reading the text.
+  const classes: (ExemptClass | undefined)[] = segments.map(exemptClass);
+  if (!classes.some(Boolean)) return undefined;
   const text = scan(command);
   if (
     parsed.writesOutput ||
@@ -147,8 +150,7 @@ export function exemptTexts(
     return undefined;
 
   const words = segments.map(segment => segment.map(word => word.text));
-  const classes: (ExemptClass | undefined)[] = segments.map(exemptClass);
-  if (!classes.some(Boolean) || words.some(runsHidden)) return undefined;
+  if (words.some(runsHidden)) return undefined;
 
   for (let i = 0; i < segments.length; i++) {
     const segment = segments[i];
