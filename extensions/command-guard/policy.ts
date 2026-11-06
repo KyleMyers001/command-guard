@@ -1,4 +1,5 @@
 import {readFileSync} from 'node:fs';
+import {triggerMatchers} from './triggers.ts';
 
 export type GuardTool = 'bash' | 'read' | 'edit' | 'write';
 
@@ -13,9 +14,10 @@ export interface Rule {
   // Raw selectors read the command as written, the canonical text and each
   // canonical line on its own, never flattened text.
   flatten?: false;
-  // `invocation` for BashCmdRegex: matched against each simple command's
-  // invocation, not against the command text.
+  // `invocation` for BashCmdRegex: matched against each command's invocation.
   view?: 'invocation';
+  // `BashCmdRegex`: words a command with no view must hold, one list in full.
+  triggers?: RegExp[][];
 }
 
 interface Policy {
@@ -147,6 +149,7 @@ function parseRule(value: unknown): Rule {
       pattern,
       regex: compileBashRegex(pattern),
       view: 'invocation',
+      triggers: pattern === undefined ? undefined : triggerMatchers(pattern),
     };
   }
 

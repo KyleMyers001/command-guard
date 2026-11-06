@@ -3,7 +3,7 @@ import {ghArgs} from './gh.ts';
 import {withoutGitGlobals} from './git.ts';
 import {execPayloads} from './find-exec.ts';
 import {isPrefix} from './prefixes.ts';
-import {expandScripts, unwrap} from './scripts.ts';
+import {expandScripts} from './scripts.ts';
 import type {Word} from './shell.ts';
 import {
   MAX_DEPTH,
@@ -15,6 +15,8 @@ import {
   type Reading,
   type Run,
 } from './view-limits.ts';
+import {commandOf} from './view-command.ts';
+import {scriptsOf} from './view-scripts.ts';
 
 // The invocation view: one line per simple command, as the program would be
 // started. Shell keywords, assignments, `env` and `time` are removed, the
@@ -23,18 +25,6 @@ import {
 // written `^pnpm -r publish` also covers `FOO=1 env /usr/bin/pnpm -r publish`
 // and `if true; then pnpm -r publish; fi`.
 
-// Words that stand where a command may start but are not part of it.
-const KEYWORDS = new Set([
-  '!',
-  '{',
-  'if',
-  'then',
-  'else',
-  'elif',
-  'while',
-  'until',
-  'do',
-]);
 const TOOLS = new Set(['git', 'gh', 'kubectl', 'helm']);
 export function spell(word: Word): string {
   if (/^[A-Za-z0-9_@%+=:,./~^-]+$/u.test(word.text)) return word.text;
@@ -43,17 +33,6 @@ export function spell(word: Word): string {
 
 function nameOf(word: Word): string {
   return word.dynamic ? '' : basename(word.text);
-}
-
-// `segment` without the shell keywords that introduce its command.
-export function withoutKeywords(segment: Word[]): Word[] {
-  // A lone `{` is flagged dynamic (brace expansion) but is only the keyword.
-  const keyword = ({text, dynamic}: Word) =>
-    KEYWORDS.has(text) && (!dynamic || text === '{');
-
-  let i = 0;
-  while (i < segment.length && keyword(segment[i])) i++;
-  return segment.slice(i);
 }
 
 function line(words: Word[]): string {
@@ -81,12 +60,20 @@ function collectPayload(payload: Word[], read: Reading, depth: number): void {
 }
 
 function collect(words: Word[], read: Reading, depth: number): void {
-  const {command, resolved} = unwrap(withoutKeywords(words));
+  const start = commandOf(words);
+  const {command, resolved} = start;
   if (command.length === 0) return;
 
   const open = !resolved || (isPrefix(command[0]) && command.length > 1);
   read.runs.push({command, open});
   if (open) chargeStarts(command, read);
+
+  // A script the guard's own expansion did not reach.
+  if (start.stripped || open) {
+    if (depth >= MAX_DEPTH) throw new Skipped();
+    for (const inner of scriptsOf(start, open, read))
+      collect(inner, read, depth + 1);
+  }
 
   // One scan from the first `find` reads every payload after it.
   const at = command.findIndex((word, i) => (open || i === 0) && isFind(word));
